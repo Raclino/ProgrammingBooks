@@ -837,4 +837,189 @@ Unmarshal() take 2 arguments, a slice of bytes and an any. The value passed in f
   - Avoid using maps directly in public APIs.
   - Prefer **structs** for clarity, type safety, validation, and future changes.
 
+### Reducing the Garbage Collector workload
+
+- Most values live on the **stack** or in **CPU registers** (since Go 1.17).
+- The heap is GC-managed → allocations here cost more.
+- Fewer heap allocations = less GC pressure = better performance.
+- Concept: **Mechanical sympathy**
+  Understanding how hardware affects performance.
+- `GOMEMLIMIT`
+  Allows controlling max memory usage (bytes), influencing GC activity.
+
+---
+
+## Chapter 7: Types, Methods, and Interfaces
+
+### Types in Go
+
+Types can be declared at any block level. But accessing the type is limited within the scope that it is being declared on.
+
+- **_abstract type_** = What it should do (ex a struct)
+- **_concrete type_** = What it should do (ex a struct) + how (ex methods on the struct)
+
+### Methods
+
+Method can only be defined at package bloc lvl
+They cannot be overloaded.
+
+### Pointer Receivers and Value Receives
+
+If u call a pointer receiver method with a value type. Go automatically take the address of the local variable when calling the method. For ex :
+
+```go
+c.Increment() --> (&c).Increment()
+```
+
+If u call a value receiver on a pointer var, go automatically dereferences the pointer when calling the method
+
+```go
+c.String() --> (*c).String()
+```
+
+⚠️ **Note:**  
+**_Never write getter ans setter method in GO unless u need them to meet an interface_**
+
+### Functions Versus Methods
+
+You can use method as a function.
+The diff is whether your func depend on other data.
+If ur logic depends on values that are configured at startup or change while ur program run, those values should be stored in a struct, and that logic should be implemented as a method. If ur logic only depends on the input param, it should be a func.
+
+### Iota is for Enumerations, sometimes...
+
+Go doesn't have enum, it has iota. It allow u to assign a increasing value to a set of constants.
+
+- `iota` start at 0 in the block in which he is declared.
+- Best practice : first define a type based on `int` that will represent all the valid values:
+
+```go
+type MailCategory int
+
+const (
+    Uncategorized MailCategory = iota
+    Personal
+    Spam
+    Social
+    Advertisemets
+)
+```
+
+### Use Embedding for Composition
+
+You can embed any type within a struct, not just other struct.
+
+### Embedding is not Inheritance
+
+### Interfaces
+
+- Only abstract type in Go
+- They are always implemented _implicitly_
+
+To define a interface :
+
+```go
+type Stringer interface {
+    String() string
+}
+```
+
+`String() string` represent the method that should be implemented on the type to meet / satisfied the interface.
+
+Interface usually are named with "er" ending
+
+### Interfaces are Type-Safe duck typing
+
+Using standard interfaces encourages the _decorator pattern_. it is common in Go to write factory functions that take in a instance of an interface and return another type that implements the same interface.
+
+### Embedding and Interfaces
+
+You can also embed an interface in an interface. Ex: `io.ReadCloser`
+
+```go
+type Reader interface {
+    Read(p []bytes) (n int, err error)
+}
+
+type Closer interface {
+    Close() error
+}
+
+type ReadCloser interface {
+    Reader
+    Closer
+}
+```
+
+### Accept Interfaces, Return Structs
+
+TODO
+
+### Interfaces and `nil`
+
+In Go, interfaces are implemented as a struct with two pointers fields, one for the value and one for the type of the value. As long as the type field is non-nil, the interface is non-nil. (Since you cannot have a variable without a type, if the value pointer is non-nil, the type pointer is always non-nil.)
+
+In order for an interface to be considered `nil`, both the type and the value must be `nil`.
+
+### Interface are comparable
+
+They are, but becareful to not trigger a `panic` at runtime.
+
+### Empty interface say nothing
+
+If u need to say a var can store a value of any type, an **_empty interface_** = `interface{}`
+
+`any` is a type alias for `interface{}` since Go v.1.18
+
+### Type assertions and type switches
+
+A **_type assertion_** names the concrete type that implemented the interface or name another interface that is also implemented by the concrete type whose value is stored in the interface.
+
+```go
+type MyInt int
+
+func main() {
+    var i any
+    var mine MyInt = 20
+    i = mine
+    i2 := i.(MyInt)
+    fmt.Println(i2 + 1)
+}
+```
+
+**_If the type assertion is wrong, the code panic_**
+
+Use "_Ok comma idiom_" to detect a zero value and avoid panic
+
+```go
+i2, ok := i.(int)
+if !ok {
+    return fmt.Errorf("unexpected type for %v", i)
+}
+
+fmt.Println(i2 + 1)
+```
+
+When an interface could be one of multiple possible types, use a **_type switch_**:
+```go
+func doThings(i any) {
+    switch j := i.(type) {
+    case nil:
+        // i is nil, type of j is any
+    case int:
+        //j is of type int
+    case MyInt:
+        //j is of type MyInt
+    case io.Reader:
+        //j is of type io.Reader
+    case string:
+        //j is of type string
+    case bool, rune:
+        //i is either a bool or rune, so j is of type any
+    default:
+        //no idea what i is, so j is of type any
+    }
+}
+```
+
 ---
