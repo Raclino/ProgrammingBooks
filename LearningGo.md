@@ -26,7 +26,7 @@ by Jon Bodner
 - Verify installation:
 
 ```bash
-go version
+mqgo version
 go env
 ```
 
@@ -358,7 +358,7 @@ Key points:
 v, ok := m["key"]
 ```
 
-==A nil map can be read from but cannot be written to.==
+**_A nil map can be read from but cannot be written to._**
 
 ### Structs
 
@@ -378,8 +378,8 @@ type Person struct {
 - Preferred over maps for APIs: safer, typed, self-documenting.
 
 - Zero value of a struct = zero value of its fields.
-- **Struct fields starting with uppercase letters are exported (public).**
-  Lowercase = package-private.
+- **Struct fields starting with Uppercase letters are exported (public).**
+  lowercase = package-private.
 
 #### Composite Literals
 
@@ -657,7 +657,7 @@ result, err := divide(10, 2)
 ```
 
 ⚠️ Important:
-==Always handle errors explicitly==. This is core to Go’s philosophy.
+**_Always handle errors explicitly_**. This is core to Go’s philosophy.
 
 ### Named Return Values (optional)
 
@@ -789,7 +789,7 @@ fmt.Println(z) //prints 15
 
 ### A pointer indicate a mutable parameters
 
-==_Go is a call-by-value language_==, the values passed to functions are copies. For nonpointer types like primitives, structs, and arrays, this means that the called function cannot modify the original. **Since the called function has a copy of the original data, the original data's immutability is guaranteed**.
+**_Go is a call-by-value language_**, the values passed to functions are copies. For nonpointer types like primitives, structs, and arrays, this means that the called function cannot modify the original. **Since the called function has a copy of the original data, the original data's immutability is guaranteed**.
 
 If a pointer is passed to a function, the function gets a copy of the pointer.
 This still points to the original data, which means that the original data can be modified by the called function.
@@ -809,6 +809,7 @@ err := json.Unmarshal([]bytes(`{"name": "Bob", "age": 30}`), &f)
 Unmarshal() take 2 arguments, a slice of bytes and an any. The value passed in for the any parameter must be a pointer or an error is return.
 
 ### Pointer passing performance
+
 - Pointers have **constant size**, regardless of data size.
 - Passing large structs by value is expensive → pointers can reduce copying.
 - For **small/medium structs**, passing by value is usually faster and safer.
@@ -816,16 +817,18 @@ Unmarshal() take 2 arguments, a slice of bytes and an any. The value passed in f
   - **< ~10 MB** → returning/passing by value is fine.
   - **Huge structs** → pointer passing helps.
 - In practice:
-==Performance rarely justifies pointers== → **prefer value semantics**.
+  **_Performance rarely justifies pointers_** → **prefer value semantics**.
 
 ### The difference between Maps and Slices
 
 - **Maps are reference types**
+
   - Internally: implemented as a pointer to a runtime hash table.
   - Passing a map → copies the pointer, **not** the contents.
   - Mutations inside a function affect the original map.
 
 - **Slices are also reference-like, but:**
+
   - Slice header (ptr + len + cap) is copied.
   - Underlying array may be shared or reallocated on append.
 
