@@ -16,7 +16,7 @@ by Jon Bodner
 
 ### Installing Go
 
-- Download from: https://go.dev/dl/
+- Download from: <https://go.dev/dl/>
 - `$GOPATH` still exists but is **conceptually deprecated** since Go Modules.
 - During installation, Go creates:
 
@@ -849,49 +849,53 @@ Unmarshal() take 2 arguments, a slice of bytes and an any. The value passed in f
 
 ---
 
-## Chapter 7: Types, Methods, and Interfaces
+## Chapter 7: Types, Methods, and Interfaces (Reworked Notes)
+
+### TLDR
+
+- Methods add behavior to types (value/pointer receivers).
+- Interfaces are implicit and describe behavior only.
+- Embedding ≠ inheritance (use for composition).
+- Accept interfaces, return concrete types.
+- Type assertions + type switches = use sparingly.
+- Interfaces enable clean dependency injection.
 
 ### Types in Go
 
-Types can be declared at any block level. But accessing the type is limited within the scope that it is being declared on.
-
-- **_abstract type_** = What it should do (ex a struct)
-- **_concrete type_** = What it should do (ex a struct) + how (ex methods on the struct)
+- A type can be declared at any scope.
+- **Concrete type** = data + behavior (methods).
+- **Abstract type** = behavior only → **interfaces**.
 
 ### Methods
 
-Method can only be defined at package bloc lvl
-They cannot be overloaded.
+- Methods are functions with a **receiver**, declared at package level.
+- Cannot be overloaded.
+- Receivers:
 
-### Pointer Receivers and Value Receives
+  - **Value receiver** → method gets a copy.
+  - **Pointer receiver** → method can mutate original value.
 
-If u call a pointer receiver method with a value type. Go automatically take the address of the local variable when calling the method. For ex :
-
-```go
-c.Increment() --> (&c).Increment()
-```
-
-If u call a value receiver on a pointer var, go automatically dereferences the pointer when calling the method
+Go automatically adjusts the call:
 
 ```go
-c.String() --> (*c).String()
+c.Inc()     // value → pointer method → (&c).Inc()
+c.String()  // pointer → value method → (*c).String()
 ```
 
-⚠️ **Note:**  
-**_Never write getter ans setter method in GO unless u need them to meet an interface_**
+#### Go Idiom
 
-### Functions Versus Methods
+**Never write getters/setters unless they satisfy an interface.**
 
-You can use method as a function.
-The diff is whether your func depend on other data.
-If ur logic depends on values that are configured at startup or change while ur program run, those values should be stored in a struct, and that logic should be implemented as a method. If ur logic only depends on the input param, it should be a func.
+### Functions vs Methods
 
-### Iota is for Enumerations, sometimes...
+- Use a **method** when logic depends on struct state.
+- Use a **function** when logic only depends on input parameters.
+- Methods = good for: configuration, shared state, domain behavior.
+- Functions = pure logic.
 
-Go doesn't have enum, it has iota. It allow u to assign a increasing value to a set of constants.
+### Iota as Enumerations
 
-- `iota` start at 0 in the block in which he is declared.
-- Best practice : first define a type based on `int` that will represent all the valid values:
+Go has no true enums, but uses `iota` for incrementing constants.
 
 ```go
 type MailCategory int
@@ -901,22 +905,27 @@ const (
     Personal
     Spam
     Social
-    Advertisemets
+    Ads
 )
 ```
 
-### Use Embedding for Composition
 
-You can embed any type within a struct, not just other struct.
+### Embedding (Composition)
 
-### Embedding is not Inheritance
+- Embedding a type inside a struct promotes its methods.
+- Provides code reuse without inheritance.
+
+```go
+type A struct { X int }
+type B struct { A }     // B “has” A, and gets A’s methods
+```
+
+⚠️ Embedding ≠ inheritance.
 
 ### Interfaces
 
-- Only abstract type in Go
-- They are always implemented _implicitly_
-
-To define a interface :
+- The **only abstract type** in Go.
+- **Implicit implementation** → no “implements” keyword.
 
 ```go
 type Stringer interface {
@@ -924,26 +933,31 @@ type Stringer interface {
 }
 ```
 
-`String() string` represent the method that should be implemented on the type to meet / satisfied the interface.
+If a type has a method `String() string`, it implements `Stringer`.
 
-Interface usually are named with "er" ending
+#### Interface Design
 
-### Interfaces are Type-Safe duck typing
+- Names often end with `-er`: Reader, Writer, Formatter…
+- Interfaces express **behavior**, not data.
 
-Using standard interfaces encourages the _decorator pattern_. it is common in Go to write factory functions that take in a instance of an interface and return another type that implements the same interface.
+### Interfaces = Type-Safe Duck Typing
 
-### Embedding and Interfaces
+> **_“If it has the right methods, it fits the interface.”_**
 
-You can also embed an interface in an interface. Ex: `io.ReadCloser`
+This enables:
+
+- **decorator pattern**
+- wrappers
+- mocks & testing
+- dependency injection
+
+### Embedding Interfaces
+
+Interfaces can embed other interfaces:
 
 ```go
-type Reader interface {
-    Read(p []bytes) (n int, err error)
-}
-
-type Closer interface {
-    Close() error
-}
+type Reader interface  { Read(p []byte) (n int, err error) }
+type Closer interface  { Close() error }
 
 type ReadCloser interface {
     Reader
@@ -951,75 +965,110 @@ type ReadCloser interface {
 }
 ```
 
-### Accept Interfaces, Return Structs
+### Accept Interfaces, Return Structs (Important Rule)
 
-TODO
+This chapter’s key idiom:
+
+- **Accept interfaces** → caller can inject different behaviors
+- **Return concrete types** → you keep control over implementation
+
+This makes code easier to test, extend, mock.
 
 ### Interfaces and `nil`
 
-In Go, interfaces are implemented as a struct with two pointers fields, one for the value and one for the type of the value. As long as the type field is non-nil, the interface is non-nil. (Since you cannot have a variable without a type, if the value pointer is non-nil, the type pointer is always non-nil.)
+An interface is internally: **(type, value)**.
 
-In order for an interface to be considered `nil`, both the type and the value must be `nil`.
-
-### Interface are comparable
-
-They are, but becareful to not trigger a `panic` at runtime.
-
-### Empty interface say nothing
-
-If u need to say a var can store a value of any type, an **_empty interface_** = `interface{}`
-
-`any` is a type alias for `interface{}` since Go v.1.18
-
-### Type assertions and type switches
-
-A **_type assertion_** names the concrete type that implemented the interface or name another interface that is also implemented by the concrete type whose value is stored in the interface.
+- Interface is **nil only if both are nil**.
+- A typed nil value still makes the interface **non-nil**, causing surprises:
 
 ```go
-type MyInt int
+var r io.Reader = (*os.File)(nil)
+fmt.Println(r == nil) // false → type is set
+```
 
-func main() {
-    var i any
-    var mine MyInt = 20
-    i = mine
-    i2 := i.(MyInt)
-    fmt.Println(i2 + 1)
+### Interfaces Are Comparable
+
+- Interfaces can be compared, but comparing unsupported values may `panic`.
+- Avoid comparing if type might contain non-comparable values.
+
+### Empty Interface (`any`)
+
+- `interface{}` or `any` (alias) accepts any type.
+- Avoid overuse; loses type safety.
+
+### Type Assertions & Type Switches
+
+#### Type Assertion
+
+```go
+i := any(10)
+v := i.(int) // panic if not int
+```
+
+Use comma-ok form to avoid panic:
+
+```go
+v, ok := i.(int)
+```
+
+#### Type Switch
+
+```go
+switch v := i.(type) {
+case int:
+case string:
+case MyType:
+default:
 }
 ```
 
-**_If the type assertion is wrong, the code panic_**
+Use sparingly → often a sign of poor abstraction.
 
-Use "_Ok comma idiom_" to detect a zero value and avoid panic
+### Function Types → Bridge to Interfaces
+
+You can use function types to adapt functions to interfaces (adapter pattern):
 
 ```go
-i2, ok := i.(int)
-if !ok {
-    return fmt.Errorf("unexpected type for %v", i)
-}
+type LoggerAdapter func(string)
 
-fmt.Println(i2 + 1)
+func (lg LoggerAdapter) Log(msg string) { lg(msg) }
 ```
 
-When an interface could be one of multiple possible types, use a **_type switch_**:
+### Dependency Injection with Interfaces (Key Go Pattern)
+
+Interfaces let you inject behavior instead of hard-coding dependencies.
+
+#### Example (simplified)
+
 ```go
-func doThings(i any) {
-    switch j := i.(type) {
-    case nil:
-        // i is nil, type of j is any
-    case int:
-        //j is of type int
-    case MyInt:
-        //j is of type MyInt
-    case io.Reader:
-        //j is of type io.Reader
-    case string:
-        //j is of type string
-    case bool, rune:
-        //i is either a bool or rune, so j is of type any
-    default:
-        //no idea what i is, so j is of type any
-    }
+type DataStore interface {
+    UserNameForID(id string) (string, bool)
+}
+
+type Logger interface {
+    Log(msg string)
+}
+
+type SimpleLogic struct {
+    ds DataStore
+    l  Logger
+}
+
+func NewSimpleLogic(l Logger, ds DataStore) SimpleLogic {
+    return SimpleLogic{l: l, ds: ds}
 }
 ```
+
+Benefits:
+
+- decoupling
+- testability
+- mocks or adapters
+- clear architecture
+
+#### Tools
+
+- **Wire** (Google) generates dependency injection wiring automatically.
+
 
 ---
