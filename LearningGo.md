@@ -11,7 +11,7 @@ by Jon Bodner
   - Simplicity (minimal syntax)
   - C-like performance
   - High productivity (integrated tooling)
-  - Easy concurrency via **goroutines** and **channels**
+  - Easy concurrency via **goroutine** and **channels**
 - Code is organized into **packages**, compiled into static binaries.
 
 ### Installing Go
@@ -789,7 +789,7 @@ fmt.Println(z) //prints 15
 
 ### A pointer indicate a mutable parameters
 
-**_Go is a call-by-value language_**, the values passed to functions are copies. For nonpointer types like primitives, structs, and arrays, this means that the called function cannot modify the original. **Since the called function has a copy of the original data, the original data's immutability is guaranteed**.
+**_Go is a call-by-value language_**, the values passed to functions are copies. For non-pointer types like primitives, structs, and arrays, this means that the called function cannot modify the original. **Since the called function has a copy of the original data, the original data's immutability is guaranteed**.
 
 If a pointer is passed to a function, the function gets a copy of the pointer.
 This still points to the original data, which means that the original data can be modified by the called function.
@@ -908,7 +908,6 @@ const (
     Ads
 )
 ```
-
 
 ### Embedding (Composition)
 
@@ -1070,39 +1069,239 @@ Benefits:
 
 - **Wire** (Google) generates dependency injection wiring automatically.
 
-
 ---
 
 ## Chapter 8: Generics
 
-Generics were added to reduce repetivness in codebases.
+_**Why Generics Exist**_
 
-### Generics reduce repetitive code and increase type safety
+- Generics were added to:
 
-TODO
-Help with method like reduce, map filter that operate on slices
+  - reduce **code duplication**
 
-### Introducing generics in go
+  - increase **type safety**
 
-TODO
-Stack exemple
+- They allow writing **generic algorithms** that work on multiple types.
 
-### Generic Function abstract algorithms
+- Generics in Go are **intentionally limited** (by design).
 
-TODO
-Maps, filters and reduce exemples
+- Go generics are about abstraction of algorithms, not abstraction of behavior.
 
-### Generics and Interfaces
+### Basic Generic Functions
 
-You can use any interface as a type constraint, not just `any` and `comparable`
+A generic function uses **type parameters**:
 
-### Use type term to specify operator
+```go
+func Identity[T any](v T) T {
+    return v
+}
+```
 
-TODO
- Interger interface, 
- Comparable interface
- `~` operator in front of type to say all the underlying types
- `cpm` package
+- T is a **type parameter**
 
+- any means “any type”
+
+- Type arguments are usually inferred by the compiler
+
+Usage:
+
+```go
+x := Identity(10)      // T = int
+y := Identity("hello") // T = string
+```
+
+### Generics for Abstract Algorithms
+
+Generics shine for algorithms like:
+
+- map
+- filter
+- reduce
+- search
+- stack / queue
+- min / max
+
+Example: generic Map over slices
+
+```go
+func Map[T any, R any](in []T, fn func(T) R) []R {
+    out := make([]R, len(in))
+    for i, v := range in {
+        out[i] = fn(v)
+    }
+    return out
+
+}
+```
+
+### Generic Data Structures
+
+Generics are useful for reusable data structures:
+
+```go
+type Stack[T any] struct {
+    items []T
+}
+
+func (s *Stack[T]) Push(v T) {
+    s.items = append(s.items, v)
+}
+
+func (s *Stack[T]) Pop() (T, bool) {
+    if len(s.items) == 0 {
+        var zero T
+        return zero, false
+    }
+    v := s.items[len(s.items)-1]
+    s.items = s.items[:len(s.items)-1]
+    return v, true
+}
+```
+
+### Type Constraints
+
+A type constraint restricts what types a generic parameter can be.
+
+```go
+func Equal[T comparable](a, b T) bool {
+    return a == b
+}
+```
+
+Common constraints:
+
+`any` → any type
+`comparable` → supports `==` and `!=`
+
+### Interfaces as Constraints
+
+Any interface can be used as a constraint:
+
+```go
+type Stringer interface {
+    String() string
+}
+
+func Print[T Stringer](v T) {
+    fmt.Println(v.String())
+}
+```
+
+Constraints describe **what operations are allowed**, not behavior.
+
+### Type Terms and `~` (Underlying Types)
+
+The `~` operator allows matching underlying types:
+
+```go
+type Integer interface {
+    ~int | ~int32 | ~int64
+}
+```
+
+This allows custom types:
+
+```go
+type UserID int
+
+func Add[T Integer](a, b T) T {
+    return a + b
+}
+```
+
+Without `~`, `UserID` would not match.
+
+### Operators and Constraints
+
+Operators are **not generic by default**.
+
+You must explicitly allow them via constraints.
+
+```go
+type Number interface {
+    ~int | ~float64
+}
+```
+
+Only operations allowed by the constraint can be used.
+
+### Type Inference
+
+- Go usually infers type arguments automatically.
+- Explicit type arguments are rarely needed.
+
+```go
+Sum([]int{1, 2, 3})      // inferred
+Sum[int]([]int{1, 2, 3}) // explicit (rare)
+```
+
+### Constant Limits in Generics
+
+Generic functions cannot assume arbitrary constant values.
+
+```go
+// INVALID
+func PlusOneThousand[T Integer](in T) T {
+    return in + 1000
+}
+// VALID
+func PlusOneHundred[T Integer](in T) T {
+    return in + 100
+}
+```
+
+Reason: constant must fit **all possible types** in the constraint.
+
+### Generics + Interfaces (Important Distinction)
+
+- **Interfaces** abstract behavior.
+- **Generics** abstract data types and algorithms.
+
+They solve **different problems** and are often used together.
+
+### Comparable Types (More Notes)
+
+- `comparable` includes:
+  - basic types
+  - structs whose fields are comparable
+- Slices, maps, and functions **are not comparable**.
+
+### What Go Generics Do NOT Have (By Design)
+
+Go intentionally excludes:
+
+- No Operator overloading
+- No Type parameters on methods
+- No Specialization (no overloaded generic + specific versions)
+- No Currying
+- No Compile-time metaprogramming
+
+Generics in Go are **simple, explicit, and predictable**.
+
+### Idiomatic Use of Generics
+
+- Prefer `any` over `interface{}`
+- Use generics only when duplication is real
+- Avoid generic APIs that reduce readability
+- Many Go APIs do not need generics
+
+Rule of thumb:
+
+**_If the generic version is harder to read than the duplicated code, don’t use generics._**
+
+### When NOT to Use Generics
+
+- Simple business logic
+- One-off functions
+- APIs where types are already clear
+- When interfaces already solve the problem better
+
+### Generics Summary (Short)
+
+- Generics abstract **algorithms**, not behavior.
+- Use them for reusable data structures and slice algorithms.
+- Type constraints control allowed operations.
+- Interfaces and generics are complementary.
+- Go generics are powerful but deliberately limited.
 
 ---
