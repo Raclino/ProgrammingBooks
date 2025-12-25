@@ -1072,3 +1072,37 @@ Benefits:
 
 
 ---
+
+## Chapter 8: Generics
+
+Generics were added to reduce repetivness in codebases.
+
+### Generics reduce repetitive code and increase type safety
+
+TODO
+Help with method like reduce, map filter that operate on slices
+
+### Introducing generics in go
+
+TODO
+Stack exemple
+
+### Generic Function abstract algorithms
+
+TODO
+Maps, filters and reduce exemples
+
+### Generics and Interfaces
+
+You can use any interface as a type constraint, not just `any` and `comparable`
+
+### Use type term to specify operator
+
+TODO
+ Interger interface, 
+ Comparable interface
+ `~` operator in front of type to say all the underlying types
+ `cpm` package
+
+
+---
