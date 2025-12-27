@@ -1305,3 +1305,40 @@ Rule of thumb:
 - Go generics are powerful but deliberately limited.
 
 ---
+
+## Chapter 9: Errors
+
+### How to Handle Errors: The Basics
+
+Error should by convention always be the last element returned by a function.
+You can instantiate a error with `errors.New()` from the `errors` package
+If err is null, you should return `nil` and the zero types value for the other elements returned.
+
+### Use strings for Simple Errors
+
+There is 2 ways to create a error form a string:
+
+- with `errors.New()` from errors package
+- with `fmt.Errorf()` from fmt package
+
+`fmt.Errorf` allow u to include informations in the error msg by using the `fmt.Printf()`
+
+### Sentinel Errors
+
+> **_To read:"Dont juste check errors, handle them gracefully" by Dave Cheney_**
+
+They exist to signify that you cannot start or continue processing.
+
+Sentinels errors are declared at the package level. By convention, they start with Err in the name.
+They should be treated as read-only.
+
+Using const for sentinel errors
+
+### Errors are Values
+
+TODO
+
+### Wrapping Errors
+
+
+---
