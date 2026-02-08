@@ -19,7 +19,6 @@ by Jon Bodner
 - Download from: <https://go.dev/dl/>
 - `$GOPATH` still exists but is **conceptually deprecated** since Go Modules.
 - During installation, Go creates:
-
   - `~/go/bin` → installed binaries
   - `~/go/pkg/mod` → module cache
 
@@ -822,13 +821,11 @@ Unmarshal() take 2 arguments, a slice of bytes and an any. The value passed in f
 ### The difference between Maps and Slices
 
 - **Maps are reference types**
-
   - Internally: implemented as a pointer to a runtime hash table.
   - Passing a map → copies the pointer, **not** the contents.
   - Mutations inside a function affect the original map.
 
 - **Slices are also reference-like, but:**
-
   - Slice header (ptr + len + cap) is copied.
   - Underlying array may be shared or reallocated on append.
 
@@ -849,9 +846,9 @@ Unmarshal() take 2 arguments, a slice of bytes and an any. The value passed in f
 
 ---
 
-## Chapter 7: Types, Methods, and Interfaces (Reworked Notes)
+## Chapter 7: Types, Methods, and Interfaces
 
-### TLDR
+### TLDR types, methods, interfaces
 
 - Methods add behavior to types (value/pointer receivers).
 - Interfaces are implicit and describe behavior only.
@@ -871,7 +868,6 @@ Unmarshal() take 2 arguments, a slice of bytes and an any. The value passed in f
 - Methods are functions with a **receiver**, declared at package level.
 - Cannot be overloaded.
 - Receivers:
-
   - **Value receiver** → method gets a copy.
   - **Pointer receiver** → method can mutate original value.
 
@@ -1076,7 +1072,6 @@ Benefits:
 _**Why Generics Exist**_
 
 - Generics were added to:
-
   - reduce **code duplication**
 
   - increase **type safety**
@@ -1086,6 +1081,14 @@ _**Why Generics Exist**_
 - Generics in Go are **intentionally limited** (by design).
 
 - Go generics are about abstraction of algorithms, not abstraction of behavior.
+
+### TLDR Generics
+
+- Generics abstract **algorithms**, not behavior.
+- Use them for reusable data structures and slice algorithms.
+- Type constraints control allowed operations.
+- Interfaces and generics are complementary.
+- Go generics are powerful but deliberately limited.
 
 ### Basic Generic Functions
 
@@ -1296,49 +1299,543 @@ Rule of thumb:
 - APIs where types are already clear
 - When interfaces already solve the problem better
 
-### Generics Summary (Short)
-
-- Generics abstract **algorithms**, not behavior.
-- Use them for reusable data structures and slice algorithms.
-- Type constraints control allowed operations.
-- Interfaces and generics are complementary.
-- Go generics are powerful but deliberately limited.
-
 ---
 
 ## Chapter 9: Errors
 
-### How to Handle Errors: The Basics
+### Errors in Go: Core Philosophy
 
-Error should by convention always be the last element returned by a function.
-You can instantiate a error with `errors.New()` from the `errors` package
-If err is null, you should return `nil` and the zero types value for the other elements returned.
+- Errors are **values**, not exceptions.
+- Functions signal failure by **returning an error**.
+- By convention:
+  - `error` is the **last return value**
+  - `nil` means success
 
-### Use strings for Simple Errors
+```go
+func ReadFile(path string) ([]byte, error) {
+    if path == "" {
+        return nil, errors.New("empty path")
+    }
+    return os.ReadFile(path)
+}
+```
 
-There is 2 ways to create a error form a string:
+### Creating Errors
 
-- with `errors.New()` from errors package
-- with `fmt.Errorf()` from fmt package
+Two common ways to create errors from strings:
 
-`fmt.Errorf` allow u to include informations in the error msg by using the `fmt.Printf()`
+- `errors.New("message")`
+- `fmt.Errorf("formatted %s", value)`
+
+Use `fmt.Errorf` when you need **contextual information**.
+
+### Errors Are Values
+
+- Errors can be:
+  - stored in variables
+  - passed to functions
+  - compared
+  - wrapped
+
+- This encourages **explicit error handling**.
+
+```go
+if err != nil {
+    return err
+}
+```
+
+> **Idiomatic Go favors clarity over cleverness.**
 
 ### Sentinel Errors
 
-> **_To read:"Dont juste check errors, handle them gracefully" by Dave Cheney_**
+Sentinel errors represent **specific, expected failure states**.
 
-They exist to signify that you cannot start or continue processing.
+- Declared at **package level**
+- Treated as **read-only**
+- Named with `ErrXxx`
 
-Sentinels errors are declared at the package level. By convention, they start with Err in the name.
-They should be treated as read-only.
+```go
+var ErrNotFound = errors.New("not found")
+```
 
-Using const for sentinel errors
+Use them when the caller must **react differently** to a specific error.
 
-### Errors are Values
+⚠️ Avoid overusing sentinel errors — they couple callers to your package.
 
-TODO
+### Wrapping Errors (Very Important)
 
-### Wrapping Errors
+Wrapping adds **context** while preserving the original error.
 
+```go
+return fmt.Errorf("failed to load user: %w", err)
+```
+
+- `%w` wraps the error
+- Creates an **error chain** (tree)
+
+You can unwrap:
+
+```go
+errors.Unwrap(err)
+```
+
+Returns `nil` if there is no wrapped error.
+
+### Checking Errors: `errors.Is` and `errors.As`
+
+Use `errors.Is` to check if an error **matches a sentinel**, even when wrapped:
+
+```go
+if errors.Is(err, ErrNotFound) {
+    // handle not found
+}
+```
+
+Use `errors.As` to extract a **specific error type**:
+
+```go
+var pathErr *fs.PathError
+if errors.As(err, &pathErr) {
+    // access pathErr fields
+}
+```
+
+Never compare errors with `==` unless you fully control them.
+
+### Wrapping Multiple Errors
+
+To combine several errors into one:
+
+```go
+err := errors.Join(err1, err2, err3)
+```
+
+- Useful for batch operations
+- `errors.Is` and `errors.As` still work
+
+### Wrapping Errors with `defer`
+
+You can add context at the end of a function:
+
+```go
+func process() (err error) {
+    defer func() {
+        if err != nil {
+            err = fmt.Errorf("process failed: %w", err)
+        }
+    }()
+    return doWork()
+}
+```
+
+- Reduces repetitive wrapping
+- Use carefully (can hide control flow)
+
+### Panic and Recover
+
+- `panic` stops normal execution.
+- Deferred functions still run.
+- Program exits after unwinding the stack.
+
+```go
+panic("something went very wrong")
+```
+
+`recover` regains control **only inside a deferred function**:
+
+```go
+defer func() {
+    if r := recover(); r != nil {
+        log.Println("recovered:", r)
+    }
+}()
+```
+
+⚠️ **Do not use panic for normal error handling.**
+
+### Why Panic/Recover Is Discouraged
+
+- Hides what can fail
+- Makes control flow unclear
+- Breaks explicit error contracts
+
+> Idiomatic Go prefers **explicit errors** over generic recovery.
+
+Special case:
+
+- Panic is acceptable for **programmer bugs** (impossible states).
+
+### `panic(nil)` Edge Case
+
+- `panic(nil)` still panics.
+- `recover()` returns `nil`.
+- This makes debugging harder → **avoid it**.
+
+### Stack Traces and Errors
+
+The standard `error` type **does not include stack traces**.
+
+Options:
+
+- Let panics print stack traces (last resort)
+- Use third-party libraries (e.g. CockroachDB errors)
+- Or log stack traces at the boundary (HTTP, CLI, worker)
+
+In Go, stack traces are usually handled at **process boundaries**, not everywhere.
+
+### Error Handling Guidelines (Important)
+
+- Handle errors **once**, at the right level.
+- Add context **when crossing boundaries** (IO, DB, HTTP).
+- Don’t log and return the same error.
+- Prefer wrapping over creating new errors.
+- Avoid sentinel errors unless they are part of the API contract.
+
+### Chapter Summary
+
+- Errors are values, returned explicitly.
+- Wrap errors to add context.
+- Use `errors.Is` / `errors.As`, not `==`.
+- Panic is for unrecoverable bugs only.
+- Keep error handling explicit and readable.
+
+---
+
+## Chapter 10: Modules, Packages, and Imports
+
+### Packages
+
+- A **package** is the smallest unit of code organization in Go.
+- All `.go` files in the same directory belong to the same package.
+- Package names:
+  - lowercase
+  - short
+  - descriptive
+- Package name acts as a **namespace** when imported.
+
+```go
+package user
+```
+
+- Visibility rules:
+  - **Exported** identifiers → start with uppercase
+  - **Unexported** → lowercase (package-private)
+
+Guideline:
+
+> A package should represent **one clear responsibility**.
+
+### Imports
+
+- Imports make identifiers from another package available.
+- Standard form:
+
+```go
+import "fmt"
+```
+
+- Multiple imports use a block:
+
+```go
+import (
+    "fmt"
+    "log"
+)
+```
+
+- Identifiers are accessed via the package name:
+
+```go
+fmt.Println("hello")
+```
+
+### Import Aliases
+
+- Used to:
+  - avoid name collisions
+  - improve readability
+
+```go
+import f "fmt"
+```
+
+Common in large projects or when importing multiple packages with the same name.
+
+### Blank Imports (`_`)
+
+- Import a package **only for its side effects**.
+- Executes the package’s `init()` function.
+
+```go
+import _ "github.com/lib/pq"
+```
+
+Typical use cases:
+
+- database drivers
+- plugin registration
+- framework integrations
+
+### init Functions
+
+- `init()` runs automatically when the package is imported.
+- No parameters, no return values.
+- Can appear multiple times per package.
+
+Typical uses:
+
+- registration
+- configuration
+- validation
+
+Guideline:
+
+> Avoid business logic in `init()`; keep behavior explicit.
+
+### Modules
+
+- A **module** is a collection of related packages.
+- Defined by a `go.mod` file at the module root.
+- Modules replace the old `$GOPATH` workflow.
+
+```bash
+go mod init github.com/user/project
+```
+
+A project usually corresponds to **one module**.
+
+### go.mod
+
+The `go.mod` file defines:
+
+- module path
+- Go version
+- direct dependencies
+
+```go
+module github.com/user/project
+
+go 1.22
+
+require github.com/go-chi/chi v5.0.10
+```
+
+- Indirect dependencies are added automatically by Go tooling.
+
+### Module Paths
+
+- Module paths usually match the repository URL.
+- Used by Go tooling to locate and download code.
+- Imports use:
+  - module path
+  - plus package subpath
+
+```go
+import "github.com/user/project/internal/service"
+```
+
+### go.sum
+
+- Contains cryptographic checksums of all dependencies.
+- Ensures **reproducible builds**.
+- Always committed to version control.
+- Automatically maintained by Go tools.
+
+### Minimal Version Selection (MVS)
+
+Go uses **Minimal Version Selection** to resolve dependencies.
+
+Key ideas:
+
+- Go chooses the **minimum version** required to satisfy all dependencies.
+- No complex dependency resolution trees.
+- No version conflicts at build time.
+- Builds are deterministic and fast.
+
+This is a major reason Go dependency management is simple and reliable.
+
+### Updating Dependencies
+
+Common commands:
+
+```bash
+go get pkg@latest
+go get pkg@v1.2.3
+go mod tidy
+```
+
+- `go mod tidy`:
+  - removes unused dependencies
+  - adds missing ones
+  - keeps `go.mod` and `go.sum` clean
+
+### Compatible vs Incompatible Versions
+
+- Go follows **semantic versioning**.
+- Minor / patch updates should be backward-compatible.
+- Breaking changes require a **major version bump**.
+
+For major versions ≥ v2:
+
+- version must appear in the module path
+
+```go
+import "github.com/user/lib/v2"
+```
+
+This prevents accidental breaking upgrades.
+
+### Versioning and Publishing Modules
+
+- Modules are versioned using Git tags.
+- Publishing a module = pushing a tagged version to a repository.
+- No central registry like npm.
+- Modules are fetched directly from VCS hosts (GitHub, GitLab, etc.).
+
+### Retracting a Module Version
+
+- Allows marking a version as **bad** without deleting it.
+- Declared in `go.mod`:
+
+```go
+retract v1.2.3
+```
+
+Used when:
+
+- a release contains critical bugs
+- users should avoid a specific version
+
+### Overriding Dependencies (`replace`)
+
+- Temporarily override a dependency.
+
+```go
+replace github.com/user/lib => ../lib
+```
+
+Common use cases:
+
+- local development
+- testing forks
+- debugging dependencies
+
+Guideline:
+
+> Avoid committing `replace` directives meant only for local use.
+
+### Workspaces (`go.work`)
+
+- Allows working on **multiple modules simultaneously**.
+- Useful for:
+  - monorepos
+  - developing multiple related modules together
+
+```bash
+go work init
+go work use ./moduleA ./moduleB
+```
+
+Workspaces avoid `replace` hacks during development.
+
+### Using Private Repositories
+
+- Go supports private modules.
+- Requires proper authentication (SSH, tokens).
+- You may need to configure:
+  - `GOPRIVATE`
+  - proxy settings
+
+```bash
+export GOPRIVATE=github.com/myorg/*
+```
+
+### Module Proxy Servers
+
+- By default, Go uses a **module proxy** (`proxy.golang.org`).
+- Proxies:
+  - cache modules
+  - improve reliability
+  - improve security
+
+You can:
+
+- disable proxies
+- use private proxies
+- configure with environment variables
+
+```bash
+GOPROXY=direct
+```
+
+### Vendoring
+
+- Vendoring copies dependencies into your repository.
+- Enabled via:
+
+```bash
+go mod vendor
+```
+
+Use cases:
+
+- reproducible builds in restricted environments
+- compliance or auditing requirements
+
+Most projects **do not need vendoring**.
+
+### pkg.go.dev
+
+- Official Go documentation site.
+- Automatically generates documentation from source code.
+- Public modules appear automatically.
+- Good documentation = good GoDoc comments.
+
+### internal Packages
+
+- Any package under `internal/`:
+  - can only be imported by code within the parent module
+
+- Enforced by the compiler.
+
+Used to:
+
+- protect internal APIs
+- prevent misuse
+
+### cmd Directory
+
+- Convention for application entry points.
+- Each subdirectory builds a separate binary.
+
+```txt
+cmd/api/main.go
+cmd/worker/main.go
+```
+
+### Idiomatic Project Layout
+
+Typical layout:
+
+```txt
+cmd/
+internal/
+go.mod
+go.sum
+```
+
+- `cmd/` → binaries
+- `internal/` → application code
+- modules manage dependencies and versions
+
+### Chapter Summary
+
+- Packages organize code; modules organize packages.
+- `go.mod` defines module identity and dependencies.
+- MVS guarantees simple and predictable dependency resolution.
+- Semantic import versioning prevents breaking upgrades.
+- Workspaces and replace help local development.
+- Go modules favor stability, simplicity, and explicitness.
 
 ---
