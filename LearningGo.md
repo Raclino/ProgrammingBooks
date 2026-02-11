@@ -1839,3 +1839,274 @@ go.sum
 - Go modules favor stability, simplicity, and explicitness.
 
 ---
+
+## Chapter 11: Tooling
+
+Go places a strong emphasis on built-in tooling.
+Unlike many ecosystems, most essential tools are part of the standard Go toolchain.
+
+Tooling is one of Go’s biggest strengths.
+
+### The `go` Command
+
+The `go` CLI is the central entry point for:
+
+- Building (`go build`)
+- Running (`go run`)
+- Testing (`go test`)
+- Formatting (`go fmt`)
+- Vetting (`go vet`)
+- Dependency management (`go mod`)
+- Generating code (`go generate`)
+- Installing tools (`go install`)
+
+The Go philosophy:
+**Convention over configuration.**
+
+### go fmt
+
+- Automatically formats code according to Go standards.
+- No configuration.
+- Eliminates style debates.
+
+```bash
+go fmt ./...
+```
+
+> **Formatting is not optional in idiomatic Go.**
+
+### go vet
+
+- Static analyzer.
+- Detects suspicious constructs:
+  - unreachable code
+  - incorrect format strings
+  - shadowed variables
+  - misused struct tags
+
+```bash
+go vet ./...
+```
+
+It does not replace a linter but catches common mistakes.
+
+### go test
+
+- Built-in testing framework.
+- Tests live in `_test.go` files.
+- Supports:
+  - benchmarks
+  - coverage
+  - race detection
+
+```bash
+go test ./...
+go test -race ./...
+go test -cover ./...
+```
+
+The race detector is extremely valuable in concurrent code.
+
+### Benchmarks
+
+Defined using `BenchmarkXxx(b *testing.B)`.
+
+```go
+func BenchmarkAdd(b *testing.B) {
+    for i := 0; i < b.N; i++ {
+        add(1, 2)
+    }
+}
+```
+
+Run with:
+
+```bash
+go test -bench=.
+```
+
+Used to measure performance regressions.
+
+### Code Coverage
+
+```bash
+go test -cover
+go test -coverprofile=coverage.out
+go tool cover -html=coverage.out
+```
+
+Helps visualize which parts of code are tested.
+
+### The Race Detector
+
+Detects data races in concurrent programs.
+
+```bash
+go test -race
+```
+
+Very important for production backend systems.
+
+### go generate
+
+Used to generate code automatically.
+
+It does nothing by default unless you add special comments:
+
+```go
+//go:generate stringer -type=State
+```
+
+Then run:
+
+```bash
+go generate ./...
+```
+
+Use cases:
+
+- Generating mocks
+- Generating string methods for enums
+- Generating database code
+- Embedding static assets
+
+Important:
+`go generate` is not dependency-aware.
+It is a developer convenience tool.
+
+### go install
+
+Used to install binaries (including CLI tools):
+
+```bash
+go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+```
+
+Installs into `$GOBIN` or `$GOPATH/bin`.
+
+Common pattern:
+Pin tool versions explicitly in documentation or Makefile.
+
+### go list
+
+Inspects modules and packages.
+
+```bash
+go list ./...
+go list -m all
+```
+
+Useful for debugging dependency graphs.
+
+### go doc and pkg.go.dev
+
+- `go doc` shows documentation in terminal.
+- Public packages are automatically indexed on [https://pkg.go.dev](https://pkg.go.dev).
+
+Good documentation = exported symbols + proper comments.
+
+### Makefiles
+
+Go doesn’t require Makefiles, but they are commonly used to:
+
+- Standardize commands
+- Avoid long CLI commands
+- Install tools locally
+- Wrap Docker commands
+- Manage migrations
+
+Example:
+
+```make
+run:
+	go run ./cmd/app
+
+test:
+	go test ./...
+
+lint:
+	golangci-lint run
+```
+
+Makefiles improve team consistency.
+
+### Linters (External Tools)
+
+Common tool:
+
+- `golangci-lint` (meta-linter)
+
+Combines many linters:
+
+- ineffassign
+- staticcheck
+- govet
+- unused
+- errcheck
+
+Not built into Go but widely adopted in industry.
+
+### Staticcheck
+
+More advanced static analysis than `go vet`.
+
+Catches:
+
+- unused code
+- subtle bugs
+- incorrect API usage
+
+Often run through `golangci-lint`.
+
+### Profiling (pprof)
+
+Go includes built-in profiling support:
+
+- CPU profiling
+- Memory profiling
+- Goroutine profiling
+
+Used for performance tuning in production systems.
+
+### Embedding Files (go:embed)
+
+Allows embedding static files into the binary.
+
+```go
+//go:embed templates/*
+var templates embed.FS
+```
+
+Useful for:
+
+- HTML templates
+- SQL migrations
+- Config files
+
+Very common in REST APIs.
+
+### Tool Philosophy in Go
+
+Key ideas:
+
+- Tooling is part of the language.
+- Formatting is standardized.
+- Testing is first-class.
+- Performance tooling is built-in.
+- Simplicity over complex build systems.
+
+Compared to ecosystems like JavaScript:
+Go relies far less on external tooling.
+
+### Practical Backend Takeaways
+
+For a production REST API, you will typically use:
+
+- `go test -race`
+- `golangci-lint`
+- `go generate` (mocks, stringer, SQL tools)
+- `go build`
+- `pprof` for profiling
+- Makefile to unify everything
+
+Tooling discipline is a major part of writing professional Go.
