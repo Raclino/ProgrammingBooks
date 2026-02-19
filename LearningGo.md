@@ -2110,3 +2110,349 @@ For a production REST API, you will typically use:
 - Makefile to unify everything
 
 Tooling discipline is a major part of writing professional Go.
+
+---
+
+## Chapter 12: Concurrency
+
+Concurrency in Go is built around:
+
+- Goroutines
+- Channels
+- Select
+- Synchronization primitives (Mutex, WaitGroup, etc.)
+- Context
+
+Go's philosophy:
+"Do not communicate by sharing memory; share memory by communicating."
+
+### Goroutines
+
+A goroutine is a lightweight thread managed by the Go runtime.
+
+Start one with the `go` keyword:
+
+```go
+go doSomething()
+```
+
+Goroutines are:
+
+- Very cheap (thousands can run)
+- Scheduled by Go runtime (not OS threads directly)
+
+Important:
+The main function exiting stops all goroutines.
+
+Example:
+
+```go
+go fmt.Println("Hello")
+```
+
+⚠ This may not print if main exits immediately.
+
+### WaitGroup
+
+Used to wait for multiple goroutines to finish.
+
+```go
+var wg sync.WaitGroup
+
+wg.Add(1)
+
+go func() {
+    defer wg.Done()
+    fmt.Println("Working")
+}()
+
+wg.Wait()
+```
+
+Rules:
+
+- Call Add BEFORE launching goroutine
+- Always call Done (usually with defer)
+- Wait blocks until counter reaches 0
+
+### Data Races
+
+A data race occurs when:
+
+- Two goroutines access the same variable
+- At least one write
+- No synchronization
+
+Example:
+
+```go
+var counter int
+
+go func() {
+    counter++
+}()
+
+go func() {
+    counter++
+}()
+```
+
+Use:
+
+```bash
+go run -race main.go
+```
+
+Race detector only catches races that occur at runtime.
+
+### Mutex
+
+Protect shared memory.
+
+```go
+var mu sync.Mutex
+var counter int
+
+mu.Lock()
+counter++
+mu.Unlock()
+```
+
+Best practice:
+
+```go
+mu.Lock()
+defer mu.Unlock()
+```
+
+Use mutex when:
+
+- Multiple goroutines modify shared state
+
+`sync.RWMutex` if you need to read and write at the same time
+
+### Channels
+
+Channels allow safe communication between goroutines.
+
+```go
+ch := make(chan int)
+```
+
+#### Sending
+
+```go
+ch <- 42
+```
+
+#### Receiving
+
+```go
+v := <-ch
+```
+
+Unbuffered channels:
+
+- Block until sender and receiver are ready
+
+Buffered channels:
+
+```go
+ch := make(chan int, 3)
+```
+
+Allow up to 3 values before blocking.
+
+### Channel Direction
+
+Function parameters can restrict channel usage:
+
+```go
+func send(ch chan<- int)
+func receive(ch <-chan int)
+```
+
+Improves type safety.
+
+### Closing Channels
+
+Only the sender should close a channel.
+
+```go
+close(ch)
+```
+
+Reading from closed channel:
+
+- Returns zero value
+- `ok` becomes false
+
+```go
+v, ok := <-ch
+```
+
+Never close a channel from receiver side.
+
+Never close twice (panic).
+
+### Range over Channels
+
+```go
+for v := range ch {
+    fmt.Println(v)
+}
+```
+
+Loop ends when channel is closed.
+
+### Select
+
+Allows waiting on multiple channel operations.
+
+```go
+select {
+case v := <-ch1:
+    fmt.Println(v)
+case ch2 <- 42:
+    fmt.Println("sent")
+default:
+    fmt.Println("no communication")
+}
+```
+
+If multiple cases are ready:
+
+- One is chosen randomly
+
+Used for:
+
+- Timeouts
+- Cancellation
+- Fan-in patterns
+
+### Timeouts
+
+```go
+select {
+case result := <-ch:
+    fmt.Println(result)
+case <-time.After(2 * time.Second):
+    fmt.Println("timeout")
+}
+```
+
+### Context
+
+Used for cancellation and deadlines.
+
+```go
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+```
+
+Pass context to goroutines:
+
+```go
+select {
+case <-ctx.Done():
+    return
+}
+```
+
+Critical for:
+
+- HTTP servers
+- Database calls
+- External API calls
+
+### Fan-out / Fan-in Pattern
+
+Fan-out:
+
+- Multiple workers reading from same channel
+
+Fan-in:
+
+- Merge results into single channel
+
+Common worker pool pattern.
+
+### Worker Pool Example
+
+```go
+jobs := make(chan int, 5)
+results := make(chan int, 5)
+
+for w := 0; w < 3; w++ {
+    go worker(jobs, results)
+}
+```
+
+Used to:
+
+- Limit concurrency
+- Control resource usage
+
+### When to Use What
+
+Use goroutines:
+
+- For parallel tasks
+
+Use channels:
+
+- When you want communication-based concurrency
+
+Use mutex:
+
+- When protecting shared state
+
+Prefer channels over shared memory when possible.
+
+### Common Concurrency Bugs
+
+- Forgetting `wg.Done()`
+- Closing channel from wrong side
+- Writing to closed channel (panic)
+- Goroutine leaks (blocked forever)
+- Ignoring context cancellation
+
+### Concurrency vs Parallelism
+
+Concurrency:
+
+- Structure of program (multiple tasks at once)
+
+Parallelism:
+
+- Running simultaneously on multiple CPUs
+
+Go supports both.
+
+### Important Mental Model
+
+Goroutines communicate via channels.
+
+Avoid:
+
+- Shared mutable state
+- Overusing mutex
+- Complex lock hierarchies
+
+Prefer:
+
+- Message passing
+- Clear ownership of data
+
+### Production Takeaways
+
+- Always use context in HTTP handlers
+- Use race detector in CI
+- Control goroutine lifetimes
+- Never leak goroutines
+- Think about cancellation paths
+
+Concurrency is powerful but dangerous.
+Design carefully.
+
+---
