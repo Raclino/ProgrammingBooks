@@ -2456,3 +2456,417 @@ Concurrency is powerful but dangerous.
 Design carefully.
 
 ---
+
+## Chapter 13:  Standard Library Packages
+
+This chapter focuses on the most commonly used packages in everyday Go development.
+
+The Go standard library philosophy:
+
+- Small, composable building blocks
+- Interfaces over inheritance
+- Explicit error handling
+- Minimal hidden behavior
+
+Mastering these packages makes you productive without heavy frameworks.
+
+### io
+
+The `io` package defines the fundamental I/O abstractions.
+
+Core interfaces:
+
+```go
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+```
+
+These interfaces are everywhere in the standard library.
+
+Examples of types implementing them:
+
+- `os.File`
+- `http.Request.Body`
+- `bytes.Buffer`
+- `strings.Reader`
+
+Very common helper:
+
+```go
+io.Copy(dst, src)
+```
+
+This works with anything that satisfies `Reader` and `Writer`.
+
+Important mental model:
+
+> If your function needs input data, accept `io.Reader`.
+> If it produces output, accept `io.Writer`.
+
+This makes your code flexible and testable.
+
+Other useful helpers:
+
+- `io.ReadAll`
+- `io.MultiReader`
+- `io.MultiWriter`
+- `io.TeeReader`
+
+### os
+
+The `os` package provides operating system functionality.
+
+Common usage:
+
+#### Files
+
+```go
+f, err := os.Open("file.txt")
+defer f.Close()
+```
+
+`*os.File` implements `io.Reader` and `io.Writer`.
+
+#### Environment Variables
+
+```go
+port := os.Getenv("PORT")
+```
+
+Use environment variables for configuration in production.
+
+#### Process Control
+
+```go
+os.Exit(1)
+```
+
+Important:
+`os.Exit` does NOT run deferred functions.
+
+### fmt
+
+Used for formatted I/O.
+
+Printing:
+
+```go
+fmt.Println("hello")
+fmt.Printf("User: %s\n", name)
+```
+
+Creating formatted errors:
+
+```go
+fmt.Errorf("user %d not found", id)
+```
+
+Error wrapping:
+
+```go
+fmt.Errorf("failed to load user: %w", err)
+```
+
+Important formatting verbs:
+
+- `%v` default representation
+- `%+v` detailed (useful with structs)
+- `%T` type
+- `%w` wrap error
+
+Production note:
+
+`fmt` is convenient but not optimized for structured logging.
+
+### log
+
+The standard `log` package provides simple logging.
+
+```go
+log.Println("starting server")
+```
+
+You can configure prefix and flags:
+
+```go
+log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+```
+
+However:
+
+⚠️ The standard `log` package is minimal and unstructured.
+
+In modern production Go (1.21+), prefer:
+
+### slog (structured logging)
+
+```go
+import "log/slog"
+
+logger := slog.Default()
+logger.Info("user created", "userID", id)
+```
+
+Structured logs:
+
+- Machine-readable
+- Better for observability systems
+- Key-value based
+
+Other popular logging libraries in industry:
+
+- `zap` (Uber)
+- `zerolog`
+- `logrus` (older but still used)
+
+Rule of thumb:
+
+- `log` → simple apps
+- `slog` / `zap` → production APIs
+
+### strings
+
+The `strings` package manipulates UTF-8 encoded strings.
+
+Common functions:
+
+- `strings.Contains`
+- `strings.Split`
+- `strings.Join`
+- `strings.TrimSpace`
+- `strings.ToLower`
+- `strings.HasPrefix`
+- `strings.ReplaceAll`
+
+Performance tip:
+
+For repeated concatenation, use `strings.Builder`:
+
+```go
+var sb strings.Builder
+sb.WriteString("Hello ")
+sb.WriteString("World")
+result := sb.String()
+```
+
+Strings in Go are:
+
+- Immutable
+- UTF-8 encoded
+- Byte slices underneath
+
+### strconv
+
+String ↔ numeric conversions.
+
+Very common in HTTP parameter parsing.
+
+```go
+age, err := strconv.Atoi("42")
+```
+
+Other examples:
+
+```go
+strconv.Itoa(42)
+strconv.ParseFloat("3.14", 64)
+strconv.ParseBool("true")
+```
+
+Always handle errors.
+
+### bufio
+
+Buffered I/O.
+
+Useful for reading files or streams efficiently.
+
+```go
+scanner := bufio.NewScanner(file)
+for scanner.Scan() {
+    line := scanner.Text()
+}
+```
+
+Important limitation:
+
+- `Scanner` has a max token size (default 64K)
+- For large lines, use `bufio.Reader`
+
+### encoding/json
+
+Critical for building APIs.
+
+#### Marshalling
+
+```go
+data, err := json.Marshal(user)
+```
+
+#### Unmarshalling
+
+```go
+err := json.Unmarshal(data, &user)
+```
+
+Struct tags:
+
+```go
+type User struct {
+    Name string `json:"name"`
+}
+```
+
+Important:
+
+- Only exported fields (capitalized) are marshalled.
+- Unknown fields are ignored by default.
+- Use pointers to distinguish zero value vs missing field.
+
+Advanced usage:
+
+```go
+decoder := json.NewDecoder(r)
+decoder.DisallowUnknownFields()
+```
+
+For large payloads, prefer streaming with `Decoder`.
+
+Production note:
+
+- `encoding/json` is slower than some alternatives (e.g. `jsoniter`)
+- But standard library is usually good enough.
+
+### net/http
+
+The core HTTP package.
+
+#### Server
+
+```go
+http.HandleFunc("/users", handler)
+http.ListenAndServe(":8080", nil)
+```
+
+Handler signature:
+
+```go
+func(w http.ResponseWriter, r *http.Request)
+```
+
+Important concepts:
+
+- `http.Handler` interface
+- Middleware pattern
+- Request context via `r.Context()`
+
+#### Client
+
+```go
+resp, err := http.Get(url)
+```
+
+⚠️ In production, do NOT use default client blindly.
+
+Better:
+
+```go
+client := &http.Client{
+    Timeout: 5 * time.Second,
+}
+```
+
+Always close body:
+
+```go
+defer resp.Body.Close()
+```
+
+### time
+
+Time handling and scheduling.
+
+Current time:
+
+```go
+time.Now()
+```
+
+Parsing:
+
+```go
+time.Parse(time.RFC3339, input)
+```
+
+Sleeping:
+
+```go
+time.Sleep(time.Second)
+```
+
+Timers:
+
+- `time.After`
+- `time.NewTimer`
+- `time.NewTicker`
+
+Production note:
+
+- Avoid `time.After` inside tight loops
+- Use `Ticker` for repeated intervals
+
+### path/filepath
+
+OS-independent path handling.
+
+```go
+filepath.Join("dir", "file.txt")
+```
+
+Important:
+
+- Use `filepath` (not `path`) for file system paths.
+
+### sort
+
+Sorting slices.
+
+```go
+sort.Ints(nums)
+```
+
+Custom sorting:
+
+```go
+sort.Slice(users, func(i, j int) bool {
+    return users[i].Age < users[j].Age
+})
+```
+
+### Practical Production Takeaways
+
+In real-world Go backend development, you constantly use:
+
+- io
+- os
+- fmt
+- log / slog
+- strings
+- strconv
+- encoding/json
+- net/http
+- time
+- errors
+
+The standard library is intentionally powerful enough for most APIs.
+
+You do not need a heavy framework to build production-ready services.
+
+Understanding these packages deeply is more important than knowing a web framework.
+
+---
