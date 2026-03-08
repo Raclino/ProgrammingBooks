@@ -2457,7 +2457,7 @@ Design carefully.
 
 ---
 
-## Chapter 13:  Standard Library Packages
+## Chapter 13: Standard Library Packages
 
 This chapter focuses on the most commonly used packages in everyday Go development.
 
@@ -2868,5 +2868,364 @@ The standard library is intentionally powerful enough for most APIs.
 You do not need a heavy framework to build production-ready services.
 
 Understanding these packages deeply is more important than knowing a web framework.
+
+---
+
+## Chapter 14: Context
+
+The `context` package is used to manage request-scoped values, cancellation signals, and deadlines across API boundaries and goroutines.
+
+It is especially important for:
+
+- HTTP servers
+- database queries
+- background jobs
+- concurrent operations
+- distributed systems
+
+A context allows you to propagate cancellation and deadlines through a call chain.
+
+### The Purpose of Context
+
+Long-running operations may need to stop early if:
+
+- the client disconnects
+- a timeout occurs
+- the parent operation is cancelled
+
+Instead of manually managing cancellation across many goroutines, Go provides the `context` package.
+
+A context carries:
+
+- cancellation signals
+- deadlines
+- request-scoped values
+
+Contexts are designed to be passed through function calls.
+
+### Context Basics
+
+A context is represented by the `context.Context` interface.
+
+```go
+type Context interface {
+    Deadline() (deadline time.Time, ok bool)
+    Done() <-chan struct{}
+    Err() error
+    Value(key any) any
+}
+```
+
+Key methods:
+
+- `Done()` → channel closed when the context is cancelled
+- `Err()` → explains why the context was cancelled
+- `Deadline()` → returns the time when the context will expire
+- `Value()` → retrieves request-scoped values
+
+### Root Contexts
+
+Two root contexts exist:
+
+```go
+context.Background()
+context.TODO()
+```
+
+#### context.Background()
+
+Used as the root context for:
+
+- servers
+- main functions
+- initialization code
+
+Example:
+
+```go
+ctx := context.Background()
+```
+
+#### context.TODO()
+
+Used when you know a context should exist but haven't decided which one yet.
+
+Example:
+
+```go
+ctx := context.TODO()
+```
+
+Usually appears during development.
+
+### Creating Derived Contexts
+
+Contexts are immutable.
+You create new contexts derived from a parent.
+
+Common constructors:
+
+- `context.WithCancel`
+- `context.WithTimeout`
+- `context.WithDeadline`
+- `context.WithValue`
+
+### Cancellation with context.WithCancel
+
+Creates a child context that can be manually cancelled.
+
+```go
+ctx, cancel := context.WithCancel(parent)
+defer cancel()
+```
+
+When `cancel()` is called:
+
+- `ctx.Done()` closes
+- all child operations should stop
+
+Example:
+
+```go
+select {
+case <-ctx.Done():
+    return
+}
+```
+
+Important rule:
+
+Always call `cancel()` to avoid resource leaks.
+
+### Timeouts with context.WithTimeout
+
+Creates a context that automatically cancels after a duration.
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+defer cancel()
+```
+
+Useful for:
+
+- HTTP calls
+- database queries
+- external services
+
+### Deadlines with context.WithDeadline
+
+Similar to timeout, but with a fixed time.
+
+```go
+deadline := time.Now().Add(5 * time.Second)
+ctx, cancel := context.WithDeadline(parent, deadline)
+```
+
+Less commonly used than `WithTimeout`.
+
+### Detecting Cancellation
+
+Cancellation is detected through `ctx.Done()`.
+
+Typical pattern:
+
+```go
+select {
+case <-ctx.Done():
+    return ctx.Err()
+}
+```
+
+Common returned errors:
+
+- `context.Canceled`
+- `context.DeadlineExceeded`
+
+### Propagating Context Through Functions
+
+Contexts must be passed explicitly.
+
+Example:
+
+```go
+func process(ctx context.Context) error {
+    select {
+    case <-ctx.Done():
+        return ctx.Err()
+    }
+}
+```
+
+Important convention:
+
+The `context.Context` parameter should always be:
+
+- the first argument
+- named `ctx`
+
+Example:
+
+```go
+func FetchUser(ctx context.Context, id int)
+```
+
+### Context and HTTP Servers
+
+In HTTP servers, the request already contains a context.
+
+```go
+func handler(w http.ResponseWriter, r *http.Request) {
+    ctx := r.Context()
+}
+```
+
+This context is automatically cancelled when:
+
+- the client disconnects
+- the request times out
+- the server shuts down
+
+You should pass this context to downstream operations.
+
+Example:
+
+```go
+user, err := service.GetUser(ctx, id)
+```
+
+### Context in Goroutines
+
+When starting goroutines, propagate the context.
+
+Example:
+
+```go
+go func(ctx context.Context) {
+    select {
+    case <-ctx.Done():
+        return
+    }
+}(ctx)
+```
+
+This prevents goroutine leaks.
+
+### Using Context Values
+
+Contexts can carry request-scoped values.
+
+```go
+ctx := context.WithValue(parent, key, value)
+```
+
+Retrieve:
+
+```go
+value := ctx.Value(key)
+```
+
+Important rules:
+
+- Keys should use custom types to avoid collisions
+- Only store request-scoped data
+
+Example:
+
+```go
+type userKeyType struct{}
+var userKey = userKeyType{}
+```
+
+Avoid using plain strings as keys.
+
+### When to Use Context Values
+
+Appropriate uses:
+
+- request ID
+- authentication info
+- tracing metadata
+- logging correlation IDs
+
+Not appropriate for:
+
+- passing optional parameters
+- global configuration
+- business logic data
+
+### Common Mistakes
+
+#### Storing Context in Structs
+
+Incorrect:
+
+```go
+type Service struct {
+    ctx context.Context
+}
+```
+
+Contexts should not be stored.
+They should be passed explicitly.
+
+#### Ignoring Context Cancellation
+
+If long operations ignore `ctx.Done()`, goroutines may leak.
+
+#### Forgetting to Call cancel()
+
+When using `WithCancel` or `WithTimeout`, always call `cancel()`.
+
+#### Using Context for Optional Parameters
+
+Context should only contain request-scoped metadata.
+
+### Context Propagation in Systems
+
+Typical flow in backend services:
+
+```
+HTTP Request
+    ↓
+Handler
+    ↓
+Service Layer
+    ↓
+Repository / Database
+    ↓
+External API calls
+```
+
+The same context should propagate through all layers.
+
+This ensures:
+
+- cancellation propagation
+- consistent timeouts
+- tracing support
+
+### Context and Observability
+
+Context is widely used for:
+
+- distributed tracing (OpenTelemetry)
+- logging correlation
+- request IDs
+- metrics
+
+Many observability tools attach metadata through context.
+
+### Production Takeaways
+
+Key rules when using context:
+
+- Always pass `ctx` as the first function parameter
+- Never store context in structs
+- Always call `cancel()` when creating derived contexts
+- Propagate context through all layers
+- Use context to control goroutine lifetimes
+- Avoid abusing context values
+
+Context is essential for building robust concurrent and networked applications in Go.
 
 ---
