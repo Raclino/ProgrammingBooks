@@ -3229,3 +3229,375 @@ Key rules when using context:
 Context is essential for building robust concurrent and networked applications in Go.
 
 ---
+
+## Chapter 15: Testing
+
+Testing is a first-class citizen in Go.  
+The language provides a built-in testing framework through the **`testing` package** and the `go test` tool.
+
+Tests live in files ending with **`_test.go`** and are executed using `go test`.
+
+### Basic Test Structure
+
+A test function:
+
+- must be in a `_test.go` file
+- must start with `Test`
+- must accept `*testing.T`
+
+Example:
+
+```go
+func TestAdd(t *testing.T) {
+    result := Add(2, 3)
+    if result != 5 {
+        t.Errorf("expected 5, got %d", result)
+    }
+}
+```
+
+Run tests:
+
+```go
+go test ./...
+```
+
+### Table-Driven Tests (Idiomatic Go)
+
+A common Go testing pattern is table-driven tests, which allow testing many cases with minimal duplication.
+
+Example:
+
+```go
+func TestAdd(t *testing.T) {
+    tests := []struct{
+        a, b int
+        expected int
+    }{
+        {1, 2, 3},
+        {2, 3, 5},
+        {10, 5, 15},
+    }
+
+    for _, tt := range tests {
+        result := Add(tt.a, tt.b)
+        if result != tt.expected {
+            t.Errorf("expected %d, got %d", tt.expected, result)
+        }
+    }
+}
+```
+
+Advantages:
+
+- concise
+- scalable
+- easy to add new cases
+- avoids duplicated test logic
+
+### Subtests
+
+Go supports subtests using t.Run.
+This allows grouping related test cases and running them independently.
+
+Example:
+
+```go
+func TestAdd(t *testing.T) {
+    tests := []struct {
+        name     string
+        a, b     int
+        expected int
+    }{
+        {"simple", 1, 2, 3},
+        {"larger", 10, 5, 15},
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            result := Add(tt.a, tt.b)
+            if result != tt.expected {
+                t.Fatalf("expected %d got %d", tt.expected, result)
+            }
+        })
+    }
+}
+```
+
+Benefits:
+
+- better output
+- granular execution
+- parallelizable
+
+### Parallel Tests
+
+Tests can be executed concurrently using:
+
+```go
+t.Parallel()
+```
+
+Example:
+
+```go
+func TestSomething(t *testing.T) {
+t.Parallel()
+}
+```
+
+Use this when tests:
+
+- do not share global state
+- do not modify shared resources
+
+Benefits:
+
+- faster test execution
+- improved CI performance
+
+### Test Helpers
+
+Functions that assist tests can be marked with:
+
+```go
+t.Helper()
+```
+
+Example:
+
+```go
+func assertEqual(t *testing.T, got, want int) {
+    t.Helper()
+    if got != want {
+        t.Fatalf("got %d want %d", got, want)
+    }
+}
+```
+
+Benefits:
+
+- cleaner stack traces
+- easier debugging
+
+### Skipping Tests
+
+Tests can be skipped with:
+
+```go
+t.Skip()
+```
+
+Example:
+
+```go
+func TestFeature(t \*testing.T) {
+    if runtime.GOOS == "windows" {
+        t.Skip("not supported on Windows")
+    }
+}
+```
+
+Useful for:
+
+- platform-specific tests
+- incomplete features
+- integration dependencies
+
+### Benchmarks testing
+
+Benchmarks measure performance.
+
+They are defined with:
+
+```go
+func BenchmarkAdd(b *testing.B)
+```
+
+Example:
+
+```go
+func BenchmarkAdd(b *testing.B) {
+    for i := 0; i < b.N; i++ {
+        Add(1, 2)
+    }
+}
+```
+
+Run benchmarks:
+
+```bash
+go test -bench=.
+```
+
+Key concept:
+`b.N` is dynamically adjusted by the test runner to produce stable measurements.
+
+### Example Tests
+
+Go also supports **example tests**, which serve as both documentation and tests.
+
+Example:
+
+```go
+func ExampleAdd() {
+    fmt.Println(Add(1, 2))
+    // Output: 3
+}
+```
+
+Benefits:
+
+- documentation + verification
+- useful for public libraries
+
+### Code Coverage testing
+
+Go provides built-in coverage analysis.
+Run tests with coverage:
+
+```bash
+go test -cover
+```
+
+Detailed coverage report:
+
+```bash
+go test -coverprofile=coverage.out
+go tool cover -html=coverage.out
+```
+
+Coverage helps identify:
+
+- untested code paths
+- dead code
+- missing edge cases
+
+However:
+
+High coverage does not **guarantee good tests**.
+Focus on meaningful behavior tests, not just coverage percentage.
+
+### Fuzz Testing (Go 1.18+)
+
+Go includes built-in fuzz testing for discovering edge cases automatically.
+
+Example:
+
+```go
+func FuzzAdd(f \*testing.F) {
+    f.Add(1, 2)
+
+    f.Fuzz(func(t *testing.T, a int, b int) {
+        result := Add(a, b)
+
+        if result != a+b {
+            t.Fatalf("unexpected result")
+        }
+    })
+
+}
+```
+
+Run fuzzing:
+
+```bash
+go test -fuzz=.
+```
+
+Fuzzing helps discover:
+
+- edge cases
+- panics
+- unexpected input combinations
+
+### Testing Best Practices
+
+Idiomatic Go testing encourages:
+
+- simple tests over complex test frameworks
+- testing behavior, not implementation
+- table-driven tests
+- small deterministic tests
+
+Avoid:
+
+- testing unexported internals unnecessarily
+- complex mocking frameworks
+- heavy test setup
+
+Prefer:
+
+- small interfaces
+- dependency injection
+- deterministic inputs
+
+### Dependency Injection and Testing
+
+Testing becomes easier when code depends on interfaces instead of concrete implementations.
+
+Example:
+
+```go
+type UserStore interface {
+     GetUser(id int) (\*User, error)
+}
+```
+
+Then in tests you can provide a mock implementation:
+
+```go
+type MockStore struct{}
+
+func (m MockStore) GetUser(id int) (*User, error) {
+    return &User{Name: "Test"}, nil
+}
+```
+
+This allows testing business logic **without a real database**.
+
+### Testing Philosophy in Go
+
+Go encourages:
+
+- minimal tooling
+- deterministic tests
+- explicit dependencies
+
+Testing is meant to be:
+
+- simple
+- fast
+- easy to maintain
+
+The standard library often provides everything needed.
+
+### Tools commonly used in industry
+
+Test helpers:
+
+```
+github.com/stretchr/testify
+```
+
+Assertions and mocks.
+
+Comparison utilities:
+
+```
+github.com/google/go-cmp
+```
+
+Better diff output in tests.
+
+### Key Takeaways
+
+- Testing is built into the Go toolchain.
+- Use `go test` as the standard entry point.
+- Prefer **table-driven tests**.
+- Use **subtests** for organization.
+- Use **benchmarks** for performance.
+- Use **fuzzing** for edge cases.
+- Design code with **interfaces** to enable testing.
+
+Good Go code is **easy to test by design**.
