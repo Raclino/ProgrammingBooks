@@ -3391,7 +3391,7 @@ t.Skip()
 Example:
 
 ```go
-func TestFeature(t \*testing.T) {
+func TestFeature(t *testing.T) {
     if runtime.GOOS == "windows" {
         t.Skip("not supported on Windows")
     }
@@ -3485,7 +3485,7 @@ Go includes built-in fuzz testing for discovering edge cases automatically.
 Example:
 
 ```go
-func FuzzAdd(f \*testing.F) {
+func FuzzAdd(f *testing.F) {
     f.Add(1, 2)
 
     f.Fuzz(func(t *testing.T, a int, b int) {
@@ -3540,7 +3540,7 @@ Example:
 
 ```go
 type UserStore interface {
-     GetUser(id int) (\*User, error)
+     GetUser(id int) (*User, error)
 }
 ```
 
