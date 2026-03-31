@@ -240,3 +240,94 @@ This makes Go especially well-suited for:
 - Correctness and clarity matter more than premature optimization.
 
 ---
+
+## Chapter 2: Modeling Your Code - Communicating Sequential Processes
+
+### Main idea
+
+This chapter explains the concurrency model Go is built around.
+
+The main point is that **concurrency is about structuring code**, while **parallelism is about execution**.
+
+- **Concurrency**: multiple tasks can progress independently
+- **Parallelism**: multiple tasks run at the same time on multiple CPU cores
+
+A program can be concurrent without being parallel.
+
+### CSP
+
+Go is heavily influenced by **CSP** (_Communicating Sequential Processes_).
+
+The idea is to model a program as independent units of work that **communicate explicitly**, instead of having many concurrent units directly share and mutate the same memory.
+
+This leads to the core Go principle:
+
+> **_Do not communicate by sharing memory; instead, share memory by communicating._**
+
+The goal is to make concurrent code easier to reason about and safer.
+
+### Goroutines
+
+A **goroutine** is a lightweight concurrent function execution managed by the Go runtime.
+
+```go
+go myFunction()
+```
+
+Goroutines are cheap to create compared to traditional threads, which makes concurrency much more practical in Go.
+
+But starting goroutines is easy: the hard part is designing how they communicate, synchronize, and stop correctly.
+
+### Channels
+
+A _channel_ is used for communication and synchronization between goroutines.
+
+```go
+messages := make(chan string)
+
+go func() {
+messages <- "hello"
+}()
+
+fmt.Println(<-messages)
+```
+
+Channels are important because they:
+
+- pass data between goroutines
+- synchronize execution
+- reduce the need for shared mutable state
+
+### Shared memory vs communication
+
+Go does not forbid shared memory and locks, but it encourages a model where concurrent parts of the program exchange data explicitly through channels.
+
+This often makes:
+
+- ownership clearer
+- synchronization more explicit
+- code easier to reason about
+
+### Runtime and scheduler
+
+Goroutines are not raw OS threads.
+
+The Go runtime schedules goroutines onto underlying threads, which is why goroutines are lightweight and scalable.
+
+This means:
+
+- you structure work with goroutines
+- the runtime handles scheduling
+- actual parallelism depends on the machine and available CPU cores
+
+### Key takeaways
+
+- **Concurrency** = structure
+- **Parallelism** = execution
+- Go’s concurrency model is strongly influenced by CSP
+- In Go, concurrency is often modeled through communication, not shared memory
+- **Goroutines** are lightweight concurrent tasks
+- **Channels** are used to communicate and synchronize between goroutines
+- The main challenge in concurrency is not launching work, but coordinating it correctly
+
+> In Go, I should first think about how concurrent tasks communicate and synchronize, not just how to run code at the same time.
