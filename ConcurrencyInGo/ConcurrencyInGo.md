@@ -331,3 +331,355 @@ This means:
 - The main challenge in concurrency is not launching work, but coordinating it correctly
 
 > In Go, I should first think about how concurrent tasks communicate and synchronize, not just how to run code at the same time.
+
+## Chapter 3: Go’s Concurrency Building Blocks
+
+### Main idea
+
+This chapter introduces the main concurrency primitives provided by Go.
+
+The core idea is that Go gives two broad ways to coordinate concurrent work:
+
+- **memory access synchronization** with the `sync` package
+- **communication and synchronization** with **channels** and `select`
+
+In general, Go encourages:
+
+- simple goroutines
+- explicit communication
+- limited shared mutable state
+
+---
+
+### Goroutines
+
+A **goroutine** is a lightweight concurrent unit of execution.
+
+```go
+go myFunction()
+```
+
+### Important ideas
+
+- every Go program starts with at least one goroutine: `main`
+- goroutines are lightweight compared to OS threads
+- launching a goroutine is easy, but coordinating it correctly is the hard part
+- goroutines run in the same address space, so shared memory must still be synchronized
+
+A common way to wait for goroutines to finish is `sync.WaitGroup`.
+
+```go
+var wg sync.WaitGroup
+
+wg.Add(1)
+go func() {
+defer wg.Done()
+fmt.Println("hello")
+}()
+
+wg.Wait()
+```
+
+**Closure gotcha**
+Closures capture variables by reference, not by value.
+
+This is a classic bug:
+
+```go
+for _, salutation := range []string{"hello", "greetings", "good day"} {
+    go func() {
+      fmt.Println(salutation)
+    }()
+}
+```
+
+The safer version is to pass the value explicitly:
+
+```go
+for _, salutation := range []string{"hello", "greetings", "good day"} {
+    go func(s string) {
+      fmt.Println(s)
+    }(salutation)
+}
+```
+
+### The sync package
+
+The `sync` package is used for **low-level memory synchronization**.
+
+It is useful when multiple goroutines must coordinate access to shared memory.
+
+#### `WaitGroup`
+
+Used to wait for a group of goroutines to complete.
+
+Main methods:
+
+- `Add(n)`
+- `Done()`
+- `Wait()`
+
+#### `Mutex`
+
+Used to protect a critical section so only one goroutine can access it at a time.
+
+```go
+var mu sync.Mutex
+var count int
+
+mu.Lock()
+count++
+mu.Unlock()
+```
+
+Use it when multiple goroutines read/write the same shared state.
+
+#### `RWMutex`
+
+A read-write mutex:
+
+- multiple readers allowed at the same time
+- only one writer at a time
+- no readers while writing
+
+Useful when:
+
+- reads are frequent
+- writes are rare
+
+#### `Cond`
+
+A condition variable used to signal goroutines that some condition has changed.
+Less commonly used directly in everyday Go code than channels, but useful for advanced coordination around shared state.
+
+Main methods:
+
+- `Wait()`
+- `Signal()`
+- `Broadcast()`
+
+#### `Once`
+
+Ensures a piece of code runs exactly one time.
+
+```go
+var once sync.Once
+
+once.Do(func() {
+fmt.Println("initialized once")
+})
+```
+
+Useful for:
+
+- lazy initialization
+- singleton-like setup
+- one-time startup logic
+
+`Pool`
+
+`sync.Pool` is a concurrent-safe object pool.
+
+Useful for reusing temporary objects and reducing allocations/GC pressure.
+
+Typical use case:
+
+- short-lived reusable buffers
+- high-throughput paths
+
+But it should not be the default solution for everything.
+
+### Channels
+
+A channel is a typed conduit used to send and receive values between goroutines.
+
+```go
+messageStream := make(chan string)
+
+go func() {
+messageStream <- "hello"
+}()
+
+fmt.Println(<-messageStream)
+```
+
+Channels are important because they provide both:
+
+- **communication**
+- **synchronization**
+
+#### Unbuffered channels
+
+An unbuffered channel requires sender and receiver to rendezvous.
+
+This means:
+
+- sending blocks until another goroutine receives
+- receiving blocks until another goroutine sends
+
+This makes unbuffered channels useful for synchronization.
+
+#### Buffered channels
+
+A buffered channel has a capacity:
+
+```go
+messageStream := make(chan string, 4)
+```
+
+This means sends can proceed without an immediate receiver, up to the channel capacity.
+Buffered channels are useful when:
+
+- producers and consumers do not run at the exact same speed
+- you want limited decoupling between stages
+
+But they **do not** remove the need for proper design.
+
+#### Channel ownership
+
+A very important Go idea is channel ownership.
+A good rule is:
+
+- the goroutine that creates a channel should usually own it
+- the owner writes to it
+- the owner closes it
+- other goroutines typically only read from it
+
+This helps avoid bugs such as:
+
+- writing to a closed channel
+- closing a channel multiple times
+- confusion about lifecycle
+
+#### Directional channels
+
+Go allows restricting channel direction in function signatures:
+
+```go
+var readStream <-chan int
+var writeStream chan<- int
+```
+
+This improves API clarity and type safety:
+
+- receive-only channel: `<-chan T`
+- send-only channel: `chan<- T`
+
+#### Closing channels
+
+A channel can be closed with:
+
+```go
+close(ch)
+```
+
+Important rules:
+
+- receivers can still read remaining buffered values
+- receiving from a closed channel returns the zero value after the channel is drained
+- only the sender / owner should usually close the channel
+- never close a channel from the receiver side unless ownership is explicit
+
+A common form:
+
+```go
+v, ok := <-ch
+```
+
+- `ok == true`: value received normally
+- `ok == false`: channel is closed and drained
+
+`for range` **on channels**
+A common pattern for consuming values until a channel is closed:
+
+```go
+for v := range ch {
+fmt.Println(v)
+}
+```
+
+This keeps receiving until the channel is closed.
+
+#### The Select statement
+
+`select` lets a goroutine wait on multiple channel operations at once.
+
+```go
+select {
+case msg := <-c1:
+fmt.Println(msg)
+case c2 <- "hello":
+fmt.Println("sent")
+default:
+fmt.Println("no channel ready")
+}
+```
+
+Important ideas:
+
+- if multiple cases are ready, one is chosen pseudo-randomly
+- if no case is ready and there is no `default`, `select` blocks
+- `default` makes the `select` non-blocking
+
+Useful for:
+
+- waiting on multiple channels
+- timeouts
+- cancellation
+- multiplexing concurrent events
+
+Special case:
+
+```go
+select {}
+```
+
+This blocks forever.
+
+#### Channel operation behavior by state
+
+| Operation | Channel state      | Result                            |
+| --------- | ------------------ | --------------------------------- |
+| Read      | `nil`              | Blocks forever                    |
+| Write     | `nil`              | Blocks forever                    |
+| Close     | `nil`              | Panic                             |
+| Read      | Open and empty     | Blocks until a value is available |
+| Write     | Open and full      | Blocks until space is available   |
+| Read      | Closed and drained | Returns zero value immediately    |
+| Write     | Closed             | Panic                             |
+| Close     | Closed             | Panic                             |
+
+**Important**:
+
+- Reading from a closed channel is valid.
+- Writing to a closed channel causes a panic.
+- Closing a `nil` channel or an already closed channel also causes a panic.
+- Operations on a `nil` channel block forever.
+
+### GOMAXPROCS
+
+`GOMAXPROCS` controls how many OS threads can execute Go code simultaneously.
+
+Main idea:
+
+- it affects parallelism
+- not the logical structure of concurrency
+
+So:
+
+- goroutines are about concurrency
+- `GOMAXPROCS` influences how much true parallel execution is possible
+
+Most of the time, you do not need to tweak it manually unless you have a specific performance reason.
+
+### Key takeaways
+
+- **Goroutines** are lightweight concurrent tasks
+- `sync` primitives are used for **shared memory synchronization**
+- **Channels** are used for **communication + synchronization**
+- Prefer clear ownership and simple coordination
+- **Unbuffered channels** synchronize sender and receiver directly
+- **Buffered channels** allow limited decoupling
+- **Directional channels** improve API clarity
+- `select` is used to coordinate multiple channel operations
+- `GOMAXPROCS` affects parallel execution, not the concurrency model itself
