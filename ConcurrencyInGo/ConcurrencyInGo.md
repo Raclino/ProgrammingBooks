@@ -349,8 +349,6 @@ In general, Go encourages:
 - explicit communication
 - limited shared mutable state
 
----
-
 ### Goroutines
 
 A **goroutine** is a lightweight concurrent unit of execution.
