@@ -796,7 +796,7 @@ results := chanOwner()
 consumer(results)
 ```
 
-### Why this example matters
+#### Why this example matters
 
 - the goroutine that creates the channel owns it
 - only the owner writes to it
@@ -809,7 +809,7 @@ This prevents many common channel mistakes:
 - closing a channel from the wrong side
 - mixing responsibilities
 
-### Key idea of confinement
+#### Key idea of confinement
 
 A good rule in Go is:
 
