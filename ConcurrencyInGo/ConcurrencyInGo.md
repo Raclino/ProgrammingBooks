@@ -681,3 +681,619 @@ Most of the time, you do not need to tweak it manually unless you have a specifi
 - **Directional channels** improve API clarity
 - `select` is used to coordinate multiple channel operations
 - `GOMAXPROCS` affects parallel execution, not the concurrency model itself
+
+## Chapter 4: Concurrency Patterns in Go
+
+### Main ideas
+
+This part of the chapter introduces recurring concurrency patterns that help structure Go programs safely.
+
+The goal is not just to launch goroutines, but to make them:
+
+- easier to reason about
+- easier to stop cleanly
+- easier to compose
+- less likely to leak or block forever
+
+The patterns covered here are especially important because they appear again and again in real Go code:
+
+- limiting access to shared data (**confinement**)
+- structuring event loops (**for-select loop**)
+- ensuring goroutines can terminate (**preventing goroutine leaks**)
+- combining cancellation signals (**or-channel**)
+- propagating failures cleanly (**error handling**)
+
+### Confinement
+
+#### Definition
+
+**Confinement** means making sure that a piece of data is only accessible from one concurrent context, or from a very limited and controlled set of goroutines.
+
+The idea is simple:
+
+**if data is not shared freely, it does not need heavy synchronization.**
+
+Instead of protecting shared mutable state everywhere with mutexes, you design the program so that ownership is clear.
+
+This usually makes code:
+
+- safer
+- easier to reason about
+- less prone to race conditions
+
+#### Why confinement matters
+
+A lot of concurrency bugs come from multiple goroutines being able to:
+
+- read the same state
+- mutate the same state
+- depend on timing
+
+Confinement reduces this risk by making ownership explicit.
+
+Rather than saying:
+
+- “everyone can access this, but be careful”
+
+you say:
+
+- “only this goroutine owns this data”
+
+That is often much simpler.
+
+#### Types of confinement
+
+##### 1. Ad hoc confinement
+
+This is confinement by convention.
+
+The code relies on discipline and documentation:
+
+- one goroutine is _supposed_ to own the data
+- other goroutines are _supposed_ not to touch it directly
+
+This can work, but it is weaker because the compiler does not help much.
+
+Example idea:
+
+- a slice is created in one goroutine
+- only that goroutine is expected to mutate it
+- other goroutines only receive copies or derived values
+
+##### 2. Lexical confinement
+
+This is stronger and preferred.
+
+The scope of the variable itself limits who can access it.
+
+If a channel or variable is created inside a function and only a read-only view is exposed, then the API itself enforces the confinement.
+
+This is one of the cleanest patterns in Go.
+
+Example:
+
+```go
+chanOwner := func() <-chan int {
+  results := make(chan int, 5)
+  
+  go func() {
+    defer close(results)
+    for i := 0; i < 5; i++ {
+      results <- i
+    }
+  }()
+
+  return results
+}
+
+consumer := func(results <-chan int) {
+  for result := range results {
+    fmt.Printf("Received: %d\n", result)
+  }
+}
+
+results := chanOwner()
+consumer(results)
+```
+
+### Why this example matters
+
+- the goroutine that creates the channel owns it
+- only the owner writes to it
+- only the owner closes it
+- consumers only receive from it
+
+This prevents many common channel mistakes:
+
+- writing to a closed channel
+- closing a channel from the wrong side
+- mixing responsibilities
+
+### Key idea of confinement
+
+A good rule in Go is:
+
+- keep mutable state local when possible
+- pass data through channels when possible
+- expose the smallest interface possible
+
+Confinement is really about **ownership**.
+
+If ownership is obvious, concurrency becomes much easier to understand.
+
+### The for-select loop
+
+#### Definition
+
+A **for-select loop** is a common Go pattern used when a goroutine needs to:
+
+- repeatedly wait for events
+- react to multiple channels
+- handle cancellation
+- continue running until explicitly told to stop
+
+General form:
+
+```go
+for {
+  select {
+  case <-done:
+    return
+  case msg := <-messages:
+    fmt.Println(msg)
+  }
+}
+```
+
+This is one of the most common building blocks in Go concurrency.
+
+#### Why it is useful
+
+Without `select`, a goroutine can only block on one channel operation at a time.
+
+With a `for-select` loop, a goroutine can continuously:
+
+- wait for work
+- listen for cancellation
+- respond to multiple inputs
+- avoid getting stuck on only one communication path
+
+This makes it a natural structure for:
+
+- workers
+- background services
+- stream processors
+- long-running goroutines
+
+#### Typical use case
+
+A goroutine often needs two things:
+
+- a way to receive useful input
+- a way to know when to stop
+
+That is exactly where the `for-select` loop shines.
+
+Example:
+
+```go
+done := make(chan struct{})
+messages := make(chan string)
+
+go func() {
+  for {
+    select {
+    case <-done:
+      fmt.Println("worker stopping")
+      return
+    case msg := <-messages:
+      fmt.Println("received:", msg)
+    }
+  }
+}()
+```
+
+This goroutine:
+
+- keeps running
+- handles incoming messages
+- exits cleanly when `done` is closed
+
+#### Important subtlety
+
+A `for-select` loop is often paired with a `done` channel because otherwise the goroutine may have no safe termination path.
+
+That is a major theme of this chapter:
+
+**every goroutine should have a clear exit strategy.**
+
+#### Variants
+
+A `for-select` loop can also:
+
+- multiplex several inputs
+- use a `default` case for non-blocking behavior
+- handle timers or timeouts
+- coordinate heartbeat and work channels
+
+Example with two inputs:
+
+```go
+for {
+  select {
+  case <-done:
+    return
+  case msg := <-messages:
+    fmt.Println("message:", msg)
+  case err := <-errs:
+    fmt.Println("error:", err)
+  }
+}
+```
+
+### Preventing goroutine leaks
+
+#### What is a goroutine leak?
+
+A goroutine leak happens when a goroutine:
+
+- is still alive
+- is blocked forever or effectively forever
+- can no longer make useful progress
+- is never cleaned up
+
+This is similar in spirit to a memory leak, except the leaked resource is a goroutine.
+
+Leaked goroutines are dangerous because they consume:
+
+- memory
+- scheduling overhead
+- file descriptors or network resources in some cases
+- mental clarity in the codebase
+
+#### Common cause
+
+The most common cause is this:
+
+- a goroutine is waiting on a channel operation
+- but nothing will ever unblock it
+
+For example:
+
+```go
+func leak() {
+  ch := make(chan int)
+
+  go func() {
+    fmt.Println(<-ch) // blocks forever
+  }()
+}
+```
+
+Here, the goroutine waits forever because nobody sends on `ch`.
+
+#### Why leaks matter
+
+Because goroutines are cheap, it is tempting to think leaks are not serious.
+
+But in long-running systems, leaked goroutines can accumulate and cause:
+
+- increased memory usage
+- performance degradation
+- hidden bugs that are hard to trace
+
+Cheap does not mean free.
+
+#### Core principle
+
+**Never start a goroutine without knowing how it will stop.**
+
+Before launching a goroutine, ask:
+
+- what work is it waiting for?
+- under what condition does it terminate?
+- who signals shutdown?
+- what happens if downstream code stops consuming?
+
+If you cannot answer these clearly, the goroutine design is incomplete.
+
+#### Using a done channel to prevent leaks
+
+A common approach is to pass a `done` channel to any goroutine that may otherwise block indefinitely.
+
+Example:
+
+```go
+doWork := func(done <-chan struct{}, strings <-chan string) <-chan struct{} {
+  terminated := make(chan struct{})
+
+  go func() {
+    defer fmt.Println("doWork exited")
+    defer close(terminated)
+
+    for {
+      select {
+      case s := <-strings:
+        fmt.Println(s)
+      case <-done:
+        return
+      }
+    }
+  }()
+
+  return terminated
+}
+```
+
+This pattern matters because:
+
+- the goroutine does useful work
+- but it also listens for cancellation
+- callers can close `done` to ensure cleanup
+
+#### Important mindset
+
+When designing pipelines or workers, always think in terms of cancellation propagation.
+
+If upstream stops early, downstream or sibling goroutines must not be left hanging forever.
+
+This is why cancellation channels are everywhere in Go concurrency patterns.
+
+### The or-channel
+
+#### Problem it solves
+
+Sometimes a goroutine depends on **multiple cancellation signals**.
+
+For example, maybe work should stop when:
+
+- parent context is cancelled
+- timeout fires
+- some external worker fails
+- another done channel closes
+
+Instead of manually selecting over many done channels everywhere, the idea is to combine them into a single channel:
+
+- if **any** input channel closes
+- the combined channel closes too
+
+This is the purpose of the **or-channel** pattern.
+
+#### Main ideas
+
+The or-channel pattern takes multiple channels and returns one channel that closes as soon as any of them closes.
+
+This allows code to depend on a single cancellation signal.
+
+Conceptually:
+
+```go
+or(done1, done2, done3)
+```
+
+means:
+
+- close as soon as `done1` closes
+- or `done2`
+- or `done3`
+
+#### Why it is useful
+
+It improves composition.
+
+Instead of wiring cancellation logic repeatedly in every part of the code, you can create one combined signal and pass it around.
+
+This is especially useful in:
+
+- recursive concurrency patterns
+- pipelines
+- systems with multiple possible shutdown sources
+
+#### Example
+
+A classic recursive version:
+
+```go
+var or func(channels ...<-chan interface{}) <-chan interface{}
+
+or = func(channels ...<-chan interface{}) <-chan interface{} {
+  switch len(channels) {
+  case 0:
+    return nil
+  case 1:
+    return channels[0]
+  }
+
+  orDone := make(chan interface{})
+
+  go func() {
+    defer close(orDone)
+
+    switch len(channels) {
+    case 2:
+      select {
+      case <-channels[0]:
+      case <-channels[1]:
+      }
+    default:
+      select {
+      case <-channels[0]:
+      case <-channels[1]:
+      case <-channels[2]:
+      case <-or(append(channels[3:], orDone)...):
+      }
+    }
+  }()
+
+  return orDone
+}
+```
+
+Usage idea:
+
+```go
+sig := func(after time.Duration) <-chan interface{} {
+  c := make(chan interface{})
+  go func() {
+    defer close(c)
+    time.Sleep(after)
+  }()
+  return c
+}
+
+start := time.Now()
+<-or(
+  sig(2*time.Hour),
+  sig(5*time.Minute),
+  sig(1*time.Second),
+  sig(1*time.Hour),
+)
+
+fmt.Printf("done after %v\n", time.Since(start))
+```
+
+The combined channel closes as soon as the earliest signal fires.
+
+#### Key takeaway
+
+The or-channel pattern is about **composability of cancellation**.
+
+It helps transform many stop signals into one stop signal.
+
+### Error handling
+
+#### Problem
+
+In concurrent programs, errors are harder to handle than in sequential code.
+
+In sequential code:
+
+- function returns value + error
+- caller handles it immediately
+
+In concurrent code:
+
+- work may happen in another goroutine
+- result and error may arrive later
+- multiple goroutines may fail independently
+- you may need to stop everything when one part fails
+
+So concurrent error handling needs structure.
+
+#### Main principle
+
+Errors should be treated as part of the communication flow.
+
+If a goroutine produces data, it often also needs a way to communicate:
+
+- success
+- failure
+- termination
+
+A common Go approach is to send a struct containing both result and error.
+
+#### Example: result + error together
+
+```go
+type Result struct {
+  Error    error
+  Response *http.Response
+}
+
+checkStatus := func(done <-chan struct{}, urls ...string) <-chan Result {
+  results := make(chan Result)
+
+  go func() {
+    defer close(results)
+
+    for _, url := range urls {
+      var result Result
+      resp, err := http.Get(url)
+      result = Result{
+        Error:    err,
+        Response: resp,
+      }
+
+      select {
+      case <-done:
+        return
+      case results <- result:
+      }
+    }
+  }()
+
+  return results
+}
+```
+
+Consumer side:
+
+```go
+done := make(chan struct{})
+defer close(done)
+
+urls := []string{
+  "https://www.google.com",
+  "https://badhost",
+  "https://www.example.com",
+}
+
+for result := range checkStatus(done, urls...) {
+  if result.Error != nil {
+    fmt.Println("error:", result.Error)
+    continue
+  }
+  fmt.Println("response:", result.Response.Status)
+}
+```
+
+#### Why this pattern is good
+
+It keeps the data flow explicit.
+
+Instead of:
+
+- hidden shared error variables
+- unclear synchronization
+- partially handled failures
+
+you send a value that fully describes the outcome of one unit of work.
+
+That aligns well with Go’s concurrency philosophy.
+
+#### Important design question
+
+When an error happens in concurrent code, you need to decide:
+
+- should this goroutine stop only itself?
+- should it report the error and continue?
+- should it cancel sibling goroutines?
+- should the whole pipeline shut down?
+
+This is not syntax. It is design.
+
+A good concurrent design makes this decision explicit.
+
+#### Common rule of thumb
+
+When possible:
+
+- keep error reporting close to the work that produced it
+- communicate errors through channels instead of shared state
+- make cancellation possible if one failure should stop the whole operation
+
+### Key takeaways
+
+- **Confinement** reduces shared mutable state by making ownership explicit
+- **Lexical confinement** is stronger than ad hoc confinement because the API itself restricts access
+- A **for-select loop** is the standard way to build long-running goroutines that handle work and cancellation
+- A goroutine should always have a clear termination path
+- **Goroutine leaks** happen when goroutines are left blocked forever or with no useful exit path
+- A **done channel** is a common way to propagate cancellation
+- The **or-channel** pattern combines multiple cancellation signals into one
+- In concurrent code, **errors should be part of the communication flow**
+- A common pattern is to send a struct containing both result data and an `error`
+
+The main thing I should remember is:
+
+**good concurrent Go code is usually explicit about ownership, cancellation, and communication.**
