@@ -246,8 +246,6 @@ Architecture decisions also have legal and societal consequences.
 
 **Key idea:** Technical efficiency is not the only architectural requirement.
 
----
-
 ## Chapter 1 — Key Takeaways
 
 1. **There is no universally best architecture.** Every design involves trade-offs.
@@ -258,6 +256,8 @@ Architecture decisions also have legal and societal consequences.
 6. **Distributed systems improve scalability and resilience but introduce partial failures and coordination complexity.**
 7. **Microservices should solve real scaling or organizational problems, not be the default.**
 8. **Choose the simplest architecture that satisfies current and reasonably expected requirements.**
+
+---
 
 # Chapter 2 — Defining Nonfunctional Requirements
 
@@ -483,8 +483,6 @@ Examples:
 
 **Key principle:** Optimize for explicit requirements, not abstract ideals such as "maximum scalability."
 
----
-
 ## Chapter 2 — Key Takeaways
 
 1. **Reliability:** Tolerate faults without causing unacceptable system failures.
@@ -495,3 +493,217 @@ Examples:
 6. **p95/p99 matter:** Average latency alone hides tail performance problems.
 7. **Scale up vs. scale out:** Simplicity versus distributed capacity and complexity.
 8. **Architecture is about trade-offs:** Define measurable requirements before choosing technologies.
+
+---
+# Chapter 3 — Data Models and Query Languages
+
+## 1. Data Models
+
+Data models determine how information is represented, stored, queried, and related.
+
+Main models:
+
+- **Relational:** Tables, rows, foreign keys, joins.
+- **Document:** JSON-like documents with nested structures.
+- **Graph:** Nodes and edges representing relationships.
+
+**Key idea:** The best model depends on data relationships and access patterns.
+
+## 2. Relational Model
+
+Data is organized into tables (relations), containing rows and columns.
+
+- **Primary key (PK):** Uniquely identifies a row.
+- **Foreign key (FK):** References another table.
+- **Joins:** Combine related data across tables.
+- **Normalization:** Reduces redundancy and update anomalies.
+
+### Relationships
+
+- **One-to-one (1:1):** User → Profile.
+- **One-to-many (1:N):** User → Orders.
+- **Many-to-many (N:M):** Playlists ↔ Songs, using a junction table.
+
+### Normalization vs. Denormalization
+
+**Normalization**
+- Avoids unnecessary duplication.
+- Improves consistency and simplifies updates.
+- May require joins when reading related data.
+
+**Denormalization**
+- Duplicates or precomputes data to optimize reads.
+- Reduces some joins.
+- Increases storage and update complexity.
+- Can introduce stale or inconsistent copies.
+
+**Key idea:** Normalize by default; denormalize when access patterns justify it.
+
+## 3. Document Model
+
+Stores related information in self-contained documents, typically JSON-like structures.
+
+Example:
+
+```json
+{
+  "orderId": 123,
+  "customerId": 42,
+  "shippingAddress": {
+    "city": "Paris"
+  },
+  "items": [
+    { "productId": 1, "quantity": 2 }
+  ]
+}
+```
+
+### Advantages
+
+- **Data locality:** Related information can be retrieved together.
+- Natural representation of hierarchical data.
+- Flexible document structures.
+- Fewer joins for self-contained aggregates.
+
+### Limitations
+
+- Duplication can cause update anomalies.
+- Many-to-many relationships are less natural.
+- Cross-document queries and joins can be more complex.
+- Large or frequently modified documents may be inefficient.
+
+### When to Use
+
+**Document model:** Data is naturally hierarchical and usually accessed together.
+
+**Relational model:** Data contains many interconnected entities and requires flexible joins.
+
+**Important:** Relational databases can also support JSON; relational and document features are not mutually exclusive.
+
+## 4. Schema-on-Write vs. Schema-on-Read
+
+### Schema-on-Write
+
+Data is validated against a schema when written.
+
+- Common in relational databases.
+- Stronger structural guarantees.
+- Schema evolution often involves migrations.
+
+### Schema-on-Read
+
+Structure is interpreted when data is read.
+
+- Common in flexible document-oriented systems.
+- Different document versions may coexist.
+- Application code must handle missing or changed fields.
+
+**Trade-off:** Early validation and consistency vs. flexibility and easier structural evolution.
+
+## 5. Query Languages
+
+### Declarative Queries
+
+Specify **what** data is needed, not the exact execution steps.
+
+Example:
+
+```sql
+SELECT name
+FROM users
+WHERE country = 'FR';
+```
+
+Advantages:
+
+- Database optimizer chooses execution strategy.
+- Easier to read and maintain.
+- Query execution can improve without changing application code.
+- Enables optimizations such as parallel execution.
+
+### Imperative Queries
+
+Specify **how** to retrieve or transform data step by step.
+
+**Key idea:** Declarative languages separate application intent from execution strategy.
+
+## 6. MapReduce
+
+Programming model for processing large datasets.
+
+- **Map:** Transform input records into intermediate key-value pairs.
+- **Reduce:** Aggregate values associated with the same key.
+
+Example: Counting occurrences of words across documents.
+
+**Trade-offs:**
+- Useful for distributed batch processing.
+- Can involve significant intermediate data movement.
+- Often less expressive and convenient than declarative query languages.
+
+## 7. Graph Data Models
+
+Graph models represent highly interconnected data.
+
+### Property Graphs
+
+- **Vertices (nodes):** Entities.
+- **Edges:** Relationships between entities.
+- Nodes and edges can have properties.
+- Edges can have labels and directions.
+
+Example:
+
+`(User) ──FOLLOWS──> (User)`
+
+Useful for social networks, recommendations, fraud detection, and knowledge graphs.
+
+### Triple Stores
+
+Represent information as:
+
+`(Subject, Predicate, Object)`
+
+Example:
+
+`(Alice, livesIn, Paris)`
+
+Often associated with RDF and semantic web technologies.
+
+### Graph Query Languages
+
+- **Cypher:** Pattern-matching queries for property graphs.
+- **SPARQL:** Query language for RDF/triple stores.
+- **Datalog:** Rule-based, declarative logic queries.
+
+Graph queries express relationships and traversal patterns naturally.
+
+**Key idea:** Graph models are particularly useful when relationships are central and traversal patterns are complex or evolving.
+
+## 8. Choosing a Data Model
+
+| Requirement | Common choice |
+|---|---|
+| Structured entities, complex joins | Relational |
+| Hierarchical, self-contained data | Document |
+| Highly interconnected entities | Graph |
+| Flexible fields and nested objects | Document / JSON |
+| Strong relational integrity | Relational |
+| Relationship traversal | Graph |
+
+These are tendencies, not strict limitations. Many modern databases support features from multiple models.
+
+
+## Chapter 3 — Key Takeaways
+
+1. **Choose data models based on relationships and access patterns**, not popularity.
+2. **Relational models** handle interconnected data and joins naturally.
+3. **Document models** favor hierarchical data and locality.
+4. **Normalization** reduces redundancy; denormalization optimizes selected reads at the cost of update complexity.
+5. **Schema-on-write** validates structure early; **schema-on-read** offers greater flexibility.
+6. **Declarative queries** let the database optimize execution.
+7. **MapReduce** separates distributed transformations into map and reduce stages.
+8. **Graph models** represent complex relationships through nodes and edges.
+9. **No model is universally superior:** each optimizes different workloads and introduces different trade-offs.
+
+---
