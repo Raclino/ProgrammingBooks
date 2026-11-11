@@ -495,6 +495,7 @@ Examples:
 8. **Architecture is about trade-offs:** Define measurable requirements before choosing technologies.
 
 ---
+
 # Chapter 3 — Data Models and Query Languages
 
 ## 1. Data Models
@@ -527,11 +528,13 @@ Data is organized into tables (relations), containing rows and columns.
 ### Normalization vs. Denormalization
 
 **Normalization**
+
 - Avoids unnecessary duplication.
 - Improves consistency and simplifies updates.
 - May require joins when reading related data.
 
 **Denormalization**
+
 - Duplicates or precomputes data to optimize reads.
 - Reduces some joins.
 - Increases storage and update complexity.
@@ -552,9 +555,7 @@ Example:
   "shippingAddress": {
     "city": "Paris"
   },
-  "items": [
-    { "productId": 1, "quantity": 2 }
-  ]
+  "items": [{ "productId": 1, "quantity": 2 }]
 }
 ```
 
@@ -637,6 +638,7 @@ Programming model for processing large datasets.
 Example: Counting occurrences of words across documents.
 
 **Trade-offs:**
+
 - Useful for distributed batch processing.
 - Can involve significant intermediate data movement.
 - Often less expressive and convenient than declarative query languages.
@@ -682,17 +684,16 @@ Graph queries express relationships and traversal patterns naturally.
 
 ## 8. Choosing a Data Model
 
-| Requirement | Common choice |
-|---|---|
-| Structured entities, complex joins | Relational |
-| Hierarchical, self-contained data | Document |
-| Highly interconnected entities | Graph |
+| Requirement                        | Common choice   |
+| ---------------------------------- | --------------- |
+| Structured entities, complex joins | Relational      |
+| Hierarchical, self-contained data  | Document        |
+| Highly interconnected entities     | Graph           |
 | Flexible fields and nested objects | Document / JSON |
-| Strong relational integrity | Relational |
-| Relationship traversal | Graph |
+| Strong relational integrity        | Relational      |
+| Relationship traversal             | Graph           |
 
 These are tendencies, not strict limitations. Many modern databases support features from multiple models.
-
 
 ## Chapter 3 — Key Takeaways
 
@@ -707,3 +708,331 @@ These are tendencies, not strict limitations. Many modern databases support feat
 9. **No model is universally superior:** each optimizes different workloads and introduces different trade-offs.
 
 ---
+
+# Chapter 4 — Storage and Retrieval
+
+## 1. Storage Engines and Indexes
+
+A database must efficiently **store data** and **retrieve it**.
+
+An **index** is an additional data structure that speeds up reads without scanning the entire dataset.
+
+- Without an index: potentially O(n) full scan.
+- With an index: faster lookups, depending on the index structure.
+- Trade-off: indexes consume storage and make writes more expensive.
+
+**Key idea:** Storage engines optimize different workloads (read-heavy, write-heavy, analytical).
+
+## 2. Log-Structured Storage
+
+A log-structured engine favors sequential writes.
+
+### SSTables (Sorted String Tables)
+
+Immutable files containing key-value pairs sorted by key.
+
+- Efficient sequential disk writes.
+- Sorted keys enable efficient searches and merging.
+- Immutable files simplify concurrent access.
+
+### LSM-Trees (Log-Structured Merge-Trees)
+
+Typical write path:
+
+1. Write to a **WAL** (Write-Ahead Log) for crash recovery.
+2. Insert into an in-memory sorted structure (**memtable**).
+3. Flush the memtable to an immutable SSTable when full.
+4. Merge SSTables in the background (**compaction**).
+
+Reads may check the memtable and multiple SSTables.
+
+**Bloom filters** help avoid unnecessary disk reads by identifying keys that are definitely absent from an SSTable.
+
+### Compaction
+
+- **Size-tiered:** Merge SSTables of similar sizes.
+- **Leveled:** Organize SSTables into levels with controlled overlap.
+
+Compaction removes obsolete versions and tombstones when safe.
+
+**Trade-off:** High write throughput, but compaction and multiple SSTables can increase read latency and write amplification.
+
+## 3. B-Trees
+
+B-Trees are balanced, page-oriented search trees commonly used in relational databases.
+
+- Keys remain sorted.
+- Searches, inserts, and deletes are typically O(log n).
+- Support point lookups and range scans.
+- Updates modify pages rather than continuously generating new sorted files.
+
+Databases commonly use a **WAL** to recover from crashes.
+
+### B-Trees vs. LSM-Trees
+
+| Property            | B-Trees             | LSM-Trees                      |
+| ------------------- | ------------------- | ------------------------------ |
+| Write strategy      | Update pages        | Buffer, flush, compact         |
+| Point reads         | Usually predictable | May check multiple structures  |
+| Range queries       | Efficient           | Efficient with sorted SSTables |
+| Write amplification | Page updates        | Repeated compaction            |
+| Background work     | Page maintenance    | Compaction                     |
+| Typical strength    | Read latency        | Sustained write throughput     |
+
+**Important:** Neither is universally faster. Performance depends on workload, caching, compaction, storage hardware, and implementation.
+
+## 4. Secondary and Multicolumn Indexes
+
+### Primary vs. Secondary Indexes
+
+- **Primary index:** Supports access through the primary key or primary storage ordering.
+- **Secondary index:** Supports queries using other attributes.
+
+Example:
+
+```sql
+CREATE INDEX idx_users_email ON users(email);
+```
+
+Secondary indexes accelerate reads but require maintenance on writes.
+
+### Composite Indexes
+
+```sql
+CREATE INDEX idx_orders_user_date
+ON orders(user_id, created_at);
+```
+
+Useful for queries filtering by `user_id` and potentially `created_at`.
+
+**Key idea:** Column order matters. A composite B-tree index is generally most useful when queries constrain its leading columns.
+
+### Covering Indexes
+
+An index contains all the data needed to answer a query.
+
+This can avoid fetching the full row from the main storage structure, subject to database-specific visibility rules.
+
+## 5. Keeping Everything in Memory
+
+In-memory databases can avoid many disk access costs.
+
+- Very low-latency access.
+- Useful for caching and high-throughput workloads.
+- Limited by RAM capacity and cost.
+
+Durability may be provided through logs, snapshots, or replication.
+
+**Important:** In-memory does not necessarily mean non-durable.
+
+## 6. OLTP vs. OLAP Storage
+
+### OLTP — Row-Oriented Storage
+
+Optimized for transactional workloads:
+
+- Frequent inserts, updates, and small reads.
+- Accessing complete records.
+- Low-latency queries.
+
+### OLAP — Column-Oriented Storage
+
+Optimized for analytical workloads:
+
+- Scanning millions of records.
+- Reading only selected columns.
+- Aggregations such as SUM, AVG, COUNT.
+
+Example:
+
+```sql
+SELECT SUM(revenue)
+FROM sales
+WHERE country = 'FR';
+```
+
+A columnar engine may only need to read `revenue` and `country`.
+
+### Column Compression
+
+Values within a column often share patterns, enabling efficient compression.
+
+Common techniques include:
+
+- Dictionary encoding.
+- Run-length encoding.
+- Bitmap encoding.
+
+**Trade-off:** Columnar storage excels at analytics but can make frequent row-level updates more expensive.
+
+## 7. Cloud Data Warehouses
+
+Cloud warehouses separate or independently scale compute and storage.
+
+Common characteristics:
+
+- Durable object storage.
+- Distributed query execution.
+- Elastic compute resources.
+- Column-oriented analytical formats.
+
+Benefits:
+
+- Scale analytical workloads independently.
+- Share or reuse stored datasets.
+- Avoid managing dedicated physical warehouse hardware.
+
+Trade-offs include query costs, network transfers, data layout, and vendor dependence.
+
+## 8. Query Execution: Compilation and Vectorization
+
+### Query Compilation
+
+A database translates a query plan into executable code or optimized instructions.
+
+This can reduce interpretation overhead.
+
+### Vectorized Execution
+
+Instead of processing one row at a time, the engine processes batches of values.
+
+Advantages:
+
+- Better CPU cache utilization.
+- Reduced per-row overhead.
+- Efficient use of SIMD instructions when supported.
+
+**Key idea:** Query performance depends not only on indexes and storage, but also on how the CPU executes the query.
+
+## 9. Materialized Views and Data Cubes
+
+### Materialized Views
+
+Store precomputed query results.
+
+Example:
+
+```sql
+SELECT country, SUM(revenue)
+FROM orders
+GROUP BY country;
+```
+
+Instead of recomputing the aggregation for every request, the result can be materialized.
+
+- Faster reads.
+- Additional storage.
+- Updates or refreshes required when source data changes.
+
+### Data Cubes
+
+Precompute aggregates across multiple dimensions.
+
+Example dimensions: `country`, `product`, `month`.
+
+Useful for analytical dashboards with repeated aggregation queries.
+
+**Trade-off:** Faster queries in exchange for storage and maintenance costs.
+
+## 10. Multidimensional and Full-Text Indexes
+
+Traditional B-tree indexes are not ideal for every query type.
+
+### Multidimensional Indexes
+
+Support queries involving multiple dimensions, such as geographic coordinates.
+
+Examples:
+
+- R-trees.
+- Spatial indexes.
+- Geospatial search.
+
+Useful for proximity searches and geometric queries.
+
+### Full-Text Search
+
+Optimized for searching words and documents.
+
+Typically uses an **inverted index**:
+
+```text
+"database" → [doc1, doc5, doc9]
+"storage"  → [doc2, doc5]
+```
+
+A term maps to documents containing it.
+
+Common capabilities:
+
+- Tokenization.
+- Stemming.
+- Relevance scoring.
+- Phrase and fuzzy matching.
+
+Examples: Elasticsearch, Lucene, PostgreSQL full-text search.
+
+**Key idea:** Full-text search requires different indexing strategies from ordinary equality or range queries.
+
+## 11. Vector Embeddings
+
+An embedding represents an item as a vector of numbers capturing learned features or semantic relationships.
+
+Examples:
+
+- Text embeddings.
+- Image embeddings.
+- Product recommendation vectors.
+
+### Similarity Search
+
+Find vectors close to a query vector using metrics such as:
+
+- Cosine similarity.
+- Euclidean distance.
+- Dot product.
+
+### Approximate Nearest Neighbor (ANN)
+
+Searching every vector becomes expensive at scale.
+
+ANN indexes, such as HNSW, trade some exactness for faster similarity search.
+
+Common applications:
+
+- Semantic search.
+- Recommendation systems.
+- Retrieval-Augmented Generation (RAG).
+
+**Trade-off:** Recall/accuracy vs. latency, memory, and indexing costs.
+
+---
+
+## Chapter 4 — Key Takeaways
+
+1. **Indexes accelerate reads** but add storage and write overhead.
+2. **LSM-Trees** buffer writes and organize immutable SSTables through compaction.
+3. **B-Trees** provide balanced, sorted access with predictable lookup performance.
+4. **B-Trees vs. LSM-Trees:** Choose according to read/write patterns, latency requirements, and operational trade-offs.
+5. **Secondary and composite indexes** should match actual query patterns.
+6. **Row-oriented storage** suits OLTP; **column-oriented storage** suits OLAP.
+7. **Compression and vectorized execution** improve analytical query efficiency.
+8. **Materialized views** exchange storage and maintenance costs for faster repeated queries.
+9. **Full-text and spatial indexes** support specialized access patterns.
+10. **Vector indexes** enable scalable semantic similarity search, often using approximate algorithms.
+
+### System Design — Remember
+
+**Write-heavy workload:** Consider LSM-based storage.
+
+**Low-latency transactional reads:** Consider B-tree-based indexing.
+
+**Large analytical scans:** Prefer column-oriented storage.
+
+**Repeated expensive aggregations:** Consider materialized views.
+
+**Text search:** Use an inverted index.
+
+**Semantic search:** Use embeddings and vector similarity indexes.
+
+**Golden rule:** Optimize for actual access patterns, not theoretical performance alone.
