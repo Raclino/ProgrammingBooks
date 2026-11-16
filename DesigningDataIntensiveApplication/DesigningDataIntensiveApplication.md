@@ -1006,8 +1006,6 @@ Common applications:
 
 **Trade-off:** Recall/accuracy vs. latency, memory, and indexing costs.
 
----
-
 ## Chapter 4 — Key Takeaways
 
 1. **Indexes accelerate reads** but add storage and write overhead.
@@ -1036,3 +1034,507 @@ Common applications:
 **Semantic search:** Use embeddings and vector similarity indexes.
 
 **Golden rule:** Optimize for actual access patterns, not theoretical performance alone.
+
+---
+
+# Chapter 5 — Encoding and Evolution
+
+## 1. Encoding and Decoding
+
+Applications represent data in two different forms:
+
+- **In-memory representation:** Objects, structs, maps, arrays, etc.
+- **Encoded representation:** A sequence of bytes suitable for storage or transmission.
+
+**Encoding (serialization)** converts in-memory data into bytes.
+
+**Decoding (deserialization)** converts bytes back into application data.
+
+```text
+Object / Struct
+      ↓ Encoding
+     Bytes
+      ↓ Decoding
+Object / Struct
+```
+
+Encoding is necessary when:
+
+- Storing data in databases or files.
+- Sending data over a network.
+- Publishing messages to a message broker.
+- Communicating between services.
+
+**Key idea:** An encoding format defines how data is exchanged between systems, potentially running different application versions.
+
+## 2. Backward and Forward Compatibility
+
+Applications evolve over time, but different versions often coexist.
+
+### Backward Compatibility
+
+**New code can read data written by old code.**
+
+Example:
+
+```json
+{
+  "id": 1,
+  "name": "Alice"
+}
+```
+
+A newer application expecting an optional `email` field must handle its absence.
+
+### Forward Compatibility
+
+**Old code can read data written by new code.**
+
+Example:
+
+```json
+{
+  "id": 1,
+  "name": "Alice",
+  "email": "alice@example.com"
+}
+```
+
+The older application must tolerate the unknown `email` field.
+
+### Rolling Deployments
+
+During a rolling deployment:
+
+- Some instances still run version `v1`.
+- Other instances already run version `v2`.
+- Both versions may access the same database or exchange messages.
+
+This requires compatible data formats.
+
+**Important:** Backward compatibility is generally easier because new code can explicitly handle old formats. Forward compatibility requires older code to tolerate future changes.
+
+## 3. Language-Specific Serialization
+
+Some languages provide native serialization mechanisms.
+
+Examples:
+
+- Java native serialization.
+- Python `pickle`.
+- Language-specific object serialization libraries.
+
+Limitations:
+
+- Tight coupling to a particular programming language.
+- Dependency on internal object structures.
+- Difficult schema evolution.
+- Potential security vulnerabilities when decoding untrusted data.
+
+**Key idea:** Avoid language-specific object serialization for communication between independent services.
+
+Prefer interoperable formats such as JSON, Protocol Buffers, or Avro.
+
+## 4. JSON, XML, and CSV
+
+Text-based formats are widely supported and human-readable.
+
+### Advantages
+
+- Easy to inspect and debug.
+- Supported across programming languages.
+- Convenient for public APIs and integrations.
+- No requirement for a specific programming language.
+
+### Limitations
+
+**Numbers**
+
+JSON does not distinguish integers from floating-point numbers at the syntax level.
+
+Large integers may lose precision in environments using IEEE 754 double-precision numbers, such as JavaScript's standard `Number` type.
+
+**Binary Data**
+
+JSON does not support raw binary data.
+
+Binary content is often represented using Base64, increasing payload size.
+
+**Schemas**
+
+JSON does not enforce a schema by itself.
+
+Additional validation mechanisms, such as JSON Schema, may be required.
+
+**CSV**
+
+CSV has limited support for data types and nested structures.
+
+**Trade-off:** Text-based formats prioritize readability and interoperability over compactness and strict typing.
+
+## 5. Binary Encoding: Protocol Buffers and Avro
+
+Binary formats provide compact representations and explicit schema evolution mechanisms.
+
+### Protocol Buffers (Protobuf)
+
+Protobuf uses a schema containing numbered fields.
+
+```protobuf
+message User {
+  int64 id = 1;
+  string name = 2;
+  optional string email = 3;
+}
+```
+
+The encoded data uses field numbers rather than repeatedly storing field names.
+
+Advantages:
+
+- Compact binary representation.
+- Efficient encoding and decoding.
+- Cross-language support.
+- Code generation.
+- Strong integration with gRPC.
+
+### Schema Evolution in Protobuf
+
+Field numbers identify fields and must remain stable.
+
+Rules:
+
+- Add new fields using new field numbers.
+- Never reuse field numbers from removed fields.
+- Reserve deleted field numbers when appropriate.
+- Avoid incompatible changes to existing field types.
+- Handle missing fields and default values correctly.
+
+**Key idea:** Protobuf supports schema evolution through stable field identifiers and compatibility rules.
+
+### Apache Avro
+
+Avro uses schemas to describe the structure of encoded data.
+
+Unlike Protobuf, Avro does not require permanent numeric field tags.
+
+Its main mechanism is **writer and reader schema resolution**.
+
+- **Writer's schema:** Describes how the data was encoded.
+- **Reader's schema:** Describes the structure expected by the consumer.
+
+When reading data, Avro resolves compatible differences between the two schemas.
+
+Example:
+
+```json
+{
+  "type": "record",
+  "name": "User",
+  "fields": [
+    { "name": "id", "type": "long" },
+    { "name": "name", "type": "string" },
+    {
+      "name": "email",
+      "type": ["null", "string"],
+      "default": null
+    }
+  ]
+}
+```
+
+Avro is commonly used in event streaming and data pipelines.
+
+### Protobuf vs. Avro
+
+| Property | Protobuf | Avro |
+|---|---|---|
+| Schema format | `.proto` | JSON-based schema |
+| Field identification | Numeric tags | Field names and schema resolution |
+| Schema evolution | Stable field numbers | Writer/reader schema resolution |
+| Code generation | Common | Optional |
+| Typical use cases | gRPC, service communication | Event streaming, data pipelines |
+
+**Important:** Both formats support schema evolution, but compatibility depends on the specific changes made.
+
+## 6. Schema Evolution
+
+Schema evolution allows data structures to change while maintaining compatibility between application versions.
+
+Common changes:
+
+- Adding a field.
+- Removing a field.
+- Renaming a field.
+- Changing a field type.
+
+### Adding Fields
+
+Usually compatible when:
+
+- Old readers ignore unknown fields.
+- New readers tolerate missing fields.
+- Appropriate defaults are available when necessary.
+
+### Removing Fields
+
+Potentially compatible when:
+
+- No active reader still requires the field.
+- Consumers tolerate its absence.
+- Removed field identifiers are not reused.
+
+### Renaming Fields
+
+May break compatibility when fields are identified by name.
+
+Some formats, such as Avro, provide mechanisms like aliases to support certain renaming scenarios.
+
+### Changing Field Types
+
+Potentially breaking because the encoded representation or expected semantics may change.
+
+**Key idea:** Compatibility depends on the relationship between existing readers and writers, not simply on whether the new schema is valid.
+
+## 7. Dataflow Through Databases
+
+Database records may outlive the application version that created them.
+
+A database can contain data written by multiple historical versions.
+
+```text
+Application v1 ─┐
+Application v2 ─┼──→ Database
+Application v3 ─┘
+```
+
+New application versions must be able to read older stored data.
+
+### Read-Modify-Write Problem
+
+Consider a record written by a newer application:
+
+```json
+{
+  "id": 1,
+  "name": "Alice",
+  "email": "alice@example.com"
+}
+```
+
+An older application only understands `id` and `name`.
+
+If it reads the record, modifies `name`, and writes the entire object back, it may accidentally delete `email`.
+
+Possible solutions:
+
+- Preserve unknown fields during decoding and re-encoding.
+- Update only modified fields.
+- Avoid replacing entire records unnecessarily.
+
+**Important:** Forward compatibility is not only about successfully reading newer data. Older applications must also avoid destroying information they do not understand.
+
+## 8. Dataflow Through Services: REST and RPC
+
+Services exchange data through network APIs.
+
+### REST
+
+REST-style APIs commonly use HTTP methods and resource-oriented URLs.
+
+```http
+GET /users/123
+POST /users
+PATCH /users/123
+```
+
+JSON is commonly used for request and response bodies.
+
+Advantages:
+
+- Broad interoperability.
+- Easy debugging.
+- Suitable for public APIs.
+- Compatible with existing HTTP infrastructure.
+
+### RPC (Remote Procedure Call)
+
+RPC exposes remote operations through function-like interfaces.
+
+Example:
+
+```text
+UserService.GetUser(userId)
+```
+
+Common technologies:
+
+- gRPC.
+- Apache Thrift.
+
+gRPC commonly uses Protocol Buffers and HTTP/2.
+
+### Remote Calls vs. Local Calls
+
+A remote function call is fundamentally different from a local function call.
+
+Network communication introduces:
+
+- Variable latency.
+- Timeouts.
+- Connection failures.
+- Partial failures.
+- Retries and duplicate execution.
+
+A timeout does not necessarily mean the server failed to execute the operation.
+
+**Key idea:** RPC simplifies interfaces but cannot eliminate the fundamental failure modes of distributed systems.
+
+### API Evolution
+
+Public APIs may need to support older clients for years.
+
+Common strategies:
+
+- Add optional fields.
+- Preserve existing field semantics.
+- Deprecate fields before removing them.
+- Introduce explicit API versions for incompatible changes.
+
+## 9. Dataflow Through Asynchronous Messaging
+
+Applications can communicate through message brokers instead of synchronous API calls.
+
+Examples:
+
+- RabbitMQ.
+- Apache Kafka.
+- AWS SQS.
+
+```text
+Producer
+   ↓
+Message Broker
+   ↓
+Consumer
+```
+
+### Advantages
+
+- Temporal decoupling between producers and consumers.
+- Buffering during traffic spikes.
+- Independent scaling.
+- Improved tolerance of temporary consumer unavailability.
+
+### Schema Evolution
+
+Producers and consumers may run different application versions.
+
+```text
+Producer v2 → Broker → Consumer v1
+```
+
+Messages may also remain stored while applications are upgraded.
+
+Therefore, consumers must handle compatible schema changes.
+
+### Schema Registry
+
+A schema registry manages schemas used by producers and consumers.
+
+Common responsibilities:
+
+- Schema versioning.
+- Compatibility validation.
+- Schema discovery.
+- Associating messages with schemas.
+
+Often used with Avro or Protobuf in event-driven architectures.
+
+**Key idea:** Asynchronous messaging decouples execution, but it does not eliminate data format compatibility requirements.
+
+## 10. Safe Schema Evolution and Deployment
+
+Consider an `OrderService` publishing events.
+
+### Version 1
+
+```json
+{
+  "order_id": 42,
+  "amount": 100
+}
+```
+
+### Version 2
+
+```json
+{
+  "order_id": 42,
+  "amount": 100,
+  "currency": "EUR"
+}
+```
+
+A safe deployment strategy:
+
+1. Ensure existing consumers tolerate unknown fields.
+2. Deploy consumers capable of handling the new field.
+3. Deploy producers that begin publishing the new field.
+4. Monitor compatibility errors.
+5. Remove obsolete behavior only after dependent systems have migrated.
+
+### Expand-and-Contract
+
+A common strategy for evolving APIs, schemas, and database structures.
+
+**Expand:**
+
+Introduce the new representation while preserving compatibility with existing clients.
+
+**Migrate:**
+
+Gradually update producers, consumers, and stored data.
+
+**Contract:**
+
+Remove the old representation once nothing depends on it.
+
+**Trade-off:** Temporary complexity in exchange for safer, incremental deployments.
+
+## Chapter 5 — Key Takeaways
+
+1. **Encoding and decoding** convert between in-memory data and representations suitable for storage or transmission.
+2. **Backward compatibility:** New code can read data written by old code.
+3. **Forward compatibility:** Old code can read data written by new code.
+4. **Rolling deployments** require multiple application versions to coexist safely.
+5. **JSON, XML, and CSV** prioritize readability and interoperability but have limitations involving types and compactness.
+6. **Protocol Buffers** use stable numeric field tags to support compact encoding and schema evolution.
+7. **Avro** resolves compatible differences between writer and reader schemas.
+8. **Schema evolution** requires careful handling of added, removed, renamed, and modified fields.
+9. **Database read-modify-write operations** can accidentally destroy unknown fields.
+10. **REST and RPC** require API compatibility, while RPC must also account for network failures.
+11. **Asynchronous messaging** decouples producers and consumers but makes schema compatibility essential.
+12. **Expand-and-contract** enables gradual changes without requiring all systems to upgrade simultaneously.
+
+### System Design — Remember
+
+**Public REST API:** JSON is often a practical default for interoperability.
+
+**Internal service communication:** Consider Protobuf and gRPC when strongly defined contracts and efficient binary encoding are useful.
+
+**Event streaming:** Consider Avro or Protobuf with a schema registry.
+
+**Rolling deployments:** Ensure old and new application versions can exchange data safely.
+
+**Database schema changes:** Prefer additive changes and gradual migrations.
+
+**Read-modify-write:** Preserve unknown fields or update only the fields that changed.
+
+**Breaking API changes:** Consider explicit versioning or a gradual migration strategy.
+
+**Distributed RPC:** Always account for timeouts, retries, duplicate execution, and partial failures.
+
+**Golden rule:** Design data formats for evolution, not just for the current version of the application.
+
+---
